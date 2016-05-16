@@ -1,0 +1,28 @@
+{
+  "name": "power-options",
+  "version": "0.1.0",
+  "description": "CLI Option parser for NodeJS",
+  "main": "out/lib/options.js",
+  "typings": "out/lib/options.d.ts",
+  "scripts": {
+    "build": "gulp",
+    "test": "gulp",
+    "watch": "gulp watch"
+  },
+  "author": "Ron Buckton <rbuckton@gmail.com>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "chai": "^3.5.0",
+    "del": "^2.2.0",
+    "gulp": "^3.9.1",
+    "gulp-istanbul": "^0.10.3",
+    "gulp-mocha": "^2.2.0",
+    "gulp-sourcemaps": "^1.6.0",
+    "gulp-typescript": "^2.12.1",
+    "gulp-util": "^3.0.7",
+    "merge2": "^1.0.1",
+    "mocha": "^2.4.5",
+    "source-map-support": "^0.4.0",
+    "typescript": "^1.9.0-dev.20160330"
+  }
+}
