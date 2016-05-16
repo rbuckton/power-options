@@ -1,7 +1,8 @@
 {
     "compilerOptions": {
         "target": "es6",
-        "module": "commonjs"
+        "module": "commonjs",
+        "declaration": true
     },
     "exclude": [
         "typings/browser.d.ts",
