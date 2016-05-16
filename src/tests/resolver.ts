@@ -3,7 +3,7 @@ import { OptionResolver } from "../lib/resolver";
 
 describe("OptionResolver", () => {
     it("default", () => {
-        const resolver = new OptionResolver({ });
+        const resolver = new OptionResolver({ options: { } });
         assert.isUndefined(resolver.defaultGroup);
         assert.isUndefined(resolver.passthru);
         assert.isUndefined(resolver.rest);

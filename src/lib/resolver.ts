@@ -1,4 +1,4 @@
-import { CommandLineOption, CommandLineParseError, CommandLineOptionMap } from "./options";
+import { CommandLineOption, CommandLineParseError, CommandLineSettings } from "./options";
 
 interface Map<T> { [key: string]: T; }
 
@@ -20,11 +20,11 @@ export class OptionResolver {
     private allOptions: CommandLineOptionProperty[] = [];
     private help: CommandLineOption;
 
-    constructor(options: CommandLineOptionMap, defaultGroup?: string) {
+    constructor(settings: CommandLineSettings) {
         let help = false;
         // Add remaining options.
-        for (const key of Object.keys(options)) {
-            const option = options[key];
+        for (const key of Object.keys(settings.options)) {
+            const option = settings.options[key];
             this.addOption(key, option);
             if (option.help) {
                 help = true;
@@ -36,8 +36,8 @@ export class OptionResolver {
             this.addOption("help", this.help = { type: "boolean", shortName: "h", longName: "help", alias: ["?"], help: true });
         }
 
-        if (defaultGroup) {
-            this.defaultGroup = defaultGroup;
+        if (settings.defaultGroup) {
+            this.defaultGroup = settings.defaultGroup;
         }
     }
 
@@ -65,12 +65,27 @@ export class OptionResolver {
         return this.keyMap[key];
     }
 
+    public getShortName(key: string, prefix?: boolean) {
+        const option = this.get(key);
+        if (!option || !option.shortName) return undefined;
+        return prefix ? "-" + option.shortName : option.shortName;
+    }
+
+    public getLongName(key: string, prefix?: boolean) {
+        const option = this.get(key);
+        if (!option) return undefined;
+        if (!option || option.longName === null) return undefined;
+        const longName = option.longName || this.normalize(key);
+        return prefix ? "--" + longName : longName;
+    }
+
     public getOptions(group?: string) {
         return this.allOptions
             .filter(({ option }) =>
-                option.groups === undefined
-                    || option.groups.length === 0
-                    || (group && option.groups.indexOf(group) !== -1));
+                group === "*"
+                || option.groups === undefined
+                || option.groups.length === 0
+                || (group && option.groups.indexOf(group) !== -1));
     }
 
     public getDefaultOptions(group?: string) {

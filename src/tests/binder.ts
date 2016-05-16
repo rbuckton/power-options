@@ -7,13 +7,15 @@ import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/par
 import { bind, BoundArgument, BoundArgumentValue } from "../lib/binder";
 
 const resolver = new OptionResolver({
-    "a": { shortName: "a" },
-    "b": { type: "string" },
-    "c": { type: "number" },
-    "d": { type: "string", multiple: true },
-    "x": { type: "string", position: 0 },
-    "gab": { type: "boolean", groups: ["a", "b"] },
-    "gbc": { type: "boolean", groups: ["b", "c"] }
+    options: {
+        "a": { shortName: "a" },
+        "b": { type: "string" },
+        "c": { type: "number" },
+        "d": { type: "string", multiple: true },
+        "x": { type: "string", position: 0 },
+        "gab": { type: "boolean", groups: ["a", "b"] },
+        "gbc": { type: "boolean", groups: ["b", "c"] }
+    }
 });
 
 describe("bind()", () => {
