@@ -81,6 +81,7 @@ export function bind(parsedArguments: ParsedArgument[], resolver: OptionResolver
             disallowCommands = true;
             const commandProperty = resolver.fromCommandName(arg.argument.value);
             if (commandProperty) {
+                arg.parameter = { parameterName: arg.argument.value };
                 const boundArgument = bindArgument(arg, commandProperty, /*args*/ undefined, usedPositions);
                 groups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ false);
                 boundArguments.push(boundArgument);
