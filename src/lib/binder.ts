@@ -64,6 +64,7 @@ export function bind(parsedArguments: ParsedArgument[], resolver: OptionResolver
     // Bind positional arguments
     const restOption = resolver.rest;
     let position = 0;
+    let disallowCommands = false;
     while (unboundArguments.length) {
         const arg = unboundArguments.shift();
 
@@ -74,6 +75,17 @@ export function bind(parsedArguments: ParsedArgument[], resolver: OptionResolver
         if (restOption && restOption.option.position <= position) {
             freeArguments.push(arg, ...unboundArguments);
             break;
+        }
+
+        if (position === 0 && !disallowCommands) {
+            disallowCommands = true;
+            const commandProperty = resolver.fromCommandName(arg.argument.value);
+            if (commandProperty) {
+                const boundArgument = bindArgument(arg, commandProperty, /*args*/ undefined, usedPositions);
+                groups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ false);
+                boundArguments.push(boundArgument);
+                continue;
+            }
         }
 
         const options = resolver.fromPosition(position);
@@ -154,7 +166,7 @@ function bindArgument(parsed: ParsedArgument, optionProperty: CommandLineOptionP
         ({ key, option } = optionProperty);
 
         // If the option can be positional, mark that this position has been used.
-        if (option.position !== undefined) {
+        if (option.position !== undefined && option.type !== "command") {
             usedPositions[option.position] = true;
         }
 
@@ -165,6 +177,10 @@ function bindArgument(parsed: ParsedArgument, optionProperty: CommandLineOptionP
 
         // Parse the argument value (if provided or needed).
         switch (type) {
+            case "command":
+                argument = { value: true };
+                break;
+
             case "boolean":
                 argument = bindBooleanOption(parsed);
                 break;

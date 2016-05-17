@@ -13,6 +13,7 @@ const resolver = new OptionResolver({
         "c": { type: "number" },
         "d": { type: "string", multiple: true },
         "x": { type: "string", position: 0 },
+        "z": { type: "command" },
         "gab": { type: "boolean", groups: ["a", "b"] },
         "gbc": { type: "boolean", groups: ["b", "c"] }
     }
@@ -30,7 +31,7 @@ describe("bind()", () => {
         [p = [parsed("--d", { longName: "d" }, { value: "e,f", values: ["e", "f"] })], [bound(p[0], "d", { value: "e,f", values: ["e", "f"] })]],
         [p = [parsed("--d", { longName: "d" }), arg("e,f", { value: "e,f", values: ["e", "f"] })], [bound(p[0], "d", { value: "e,f", values: ["e", "f"] })]],
         [p = [parsed("--d", { longName: "d" }), arg("e")], [bound(p[0], "d", { value: "e" })]],
-        [p = [arg("f")], [bound(p[0], "x", { value: "f" })]],
+        [p = [arg("z"), arg("f")], [bound(p[0], "z", { value: true }), bound(p[1], "x", { value: "f" })]],
         [p = [parsed("--gab", { longName: "gab" }), parsed("--gbc", { longName: "gbc" })], [bound(p[0], "gab", { value: true }), bound(p[1], "gbc", { value: true })], ["b"]]
     ], (parsed, bound, groups) => {
         expect(bind(parsed, resolver)).to.deep.equal({ boundArguments: bound, groups });

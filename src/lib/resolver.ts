@@ -12,10 +12,12 @@ export class OptionResolver {
     public rest: CommandLineOptionProperty;
     public defaultGroup: string;
     public groups: string[] = [];
+    public hasCommands: boolean;
 
     private keyMap: Map<CommandLineOption> = Object.create(null);
     private shortNameMap: Map<CommandLineOptionProperty> = Object.create(null);
     private longNameMap: Map<CommandLineOptionProperty> = Object.create(null);
+    private commandMap: Map<CommandLineOptionProperty> = Object.create(null);
     private positionMap: Map<CommandLineOptionProperty[]> = Object.create(null);
     private allOptions: CommandLineOptionProperty[] = [];
     private help: CommandLineOption;
@@ -55,6 +57,10 @@ export class OptionResolver {
 
     public fromPosition(position: number) {
         return this.positionMap[position];
+    }
+
+    public fromCommandName(commandName: string) {
+        return this.commandMap[commandName];
     }
 
     public has(key: string) {
@@ -115,101 +121,122 @@ export class OptionResolver {
         this.keyMap[key] = option;
 
         const entry = { key, option };
-        if (option.passthru) {
-            if (this.passthru) {
-                throw new Error(`Duplicate passthru option '${key}' conflicts with previous definition '${this.passthru.key}'`);
+
+        if (option.type === "command") {
+            if (option.longName) {
+                const longName = this.normalize(option.longName);
+                if (this.commandMap[longName]) {
+                    throw new Error(`Duplicate command name '${option.longName}' for option '${key}' conflicts with previous definition '${this.commandMap[longName].key}'.`);
+                }
+
+                this.commandMap[longName] = entry;
+            }
+            else {
+                const longName = this.normalize(key);
+                if (!this.commandMap[longName]) {
+                    this.commandMap[longName] = entry;
+                }
             }
 
-            this.passthru = entry;
-        }
-
-        if (option.rest) {
-            if (this.rest) {
-                throw new Error(`Duplicate rest option '${key}' conflicts with previous definition '${this.rest.key}'.`);
-            }
-
-            this.rest = entry;
-        }
-
-        if (option.longName) {
-            const longName = this.normalize(option.longName);
-            if (this.longNameMap[longName]) {
-                throw new Error(`Duplicate long name '${option.longName}' for option '${key}' conflicts with previous definition '${this.longNameMap[longName].key}'.`);
-            }
-
-            this.longNameMap[longName] = entry;
+            this.hasCommands = true;
         }
         else {
-            const longName = this.normalize(key);
-            if (!this.longNameMap[longName]) {
+            if (option.passthru) {
+                if (this.passthru) {
+                    throw new Error(`Duplicate passthru option '${key}' conflicts with previous definition '${this.passthru.key}'`);
+                }
+
+                this.passthru = entry;
+            }
+
+            if (option.rest) {
+                if (this.rest) {
+                    throw new Error(`Duplicate rest option '${key}' conflicts with previous definition '${this.rest.key}'.`);
+                }
+
+                this.rest = entry;
+            }
+
+            if (option.longName) {
+                const longName = this.normalize(option.longName);
+                if (this.longNameMap[longName]) {
+                    throw new Error(`Duplicate long name '${option.longName}' for option '${key}' conflicts with previous definition '${this.longNameMap[longName].key}'.`);
+                }
+
                 this.longNameMap[longName] = entry;
             }
-        }
-
-        if (option.shortName) {
-            if (option.shortName.trim().length !== 1) {
-                throw new Error(`Short name for option '${key}' must be a single non-whitespace character.`);
-            }
-
-            if (this.shortNameMap[option.shortName]) {
-                throw new Error(`Duplicate short name '${option.shortName}' for option '${key}' conflicts with previous definition '${this.shortNameMap[option.shortName].key}'.`);
-            }
-
-            this.shortNameMap[option.shortName] = entry;
-        }
-
-        if (option.alias) {
-            for (const alias of option.alias) {
-                if (alias.trim().length === 0) {
-                    throw new Error(`Alias for option '${key}' must be one or more characters.`);
-                }
-
-                if (alias.length === 1) {
-                    if (this.shortNameMap[alias]) {
-                        throw new Error(`Duplicate alias '${alias}' for option '${key}' conflicts with previous definition '${this.shortNameMap[alias].key}'.`);
-                    }
-
-                    this.shortNameMap[alias] = entry;
-                }
-                else {
-                    const longName = this.normalize(alias);
-                    if (this.longNameMap[longName]) {
-                        throw new Error(`Duplicate alias '${alias}' for option '${key}' conflicts with previous definition '${this.longNameMap[longName].key}'.`);
-                    }
-
+            else {
+                const longName = this.normalize(key);
+                if (!this.longNameMap[longName]) {
                     this.longNameMap[longName] = entry;
                 }
             }
-        }
 
-        if (option.position !== undefined) {
-            const options = this.positionMap[option.position] || (this.positionMap[option.position] = []);
-            if (!option.groups || option.groups.length === 0) {
-                for (const existingOption of options) {
-                    throw new Error(`Option '${key}' specifies the same position as option '${existingOption.key}'.`);
+            if (option.shortName) {
+                if (option.shortName.trim().length !== 1) {
+                    throw new Error(`Short name for option '${key}' must be a single non-whitespace character.`);
                 }
+
+                if (this.shortNameMap[option.shortName]) {
+                    throw new Error(`Duplicate short name '${option.shortName}' for option '${key}' conflicts with previous definition '${this.shortNameMap[option.shortName].key}'.`);
+                }
+
+                this.shortNameMap[option.shortName] = entry;
             }
-            else {
-                for (const existingOption of options) {
-                    if (existingOption.option.groups && existingOption.option.groups.length > 0) {
-                        const existingGroups = new Set(existingOption.option.groups);
-                        const intersection: string[] = [];
-                        for (const group of option.groups) {
-                            if (existingGroups.has(group)) {
-                                intersection.push(group);
-                            }
+
+            if (option.alias) {
+                for (const alias of option.alias) {
+                    if (alias.trim().length === 0) {
+                        throw new Error(`Alias for option '${key}' must be one or more characters.`);
+                    }
+
+                    if (alias.length === 1) {
+                        if (this.shortNameMap[alias]) {
+                            throw new Error(`Duplicate alias '${alias}' for option '${key}' conflicts with previous definition '${this.shortNameMap[alias].key}'.`);
                         }
-                        if (intersection) {
-                            throw new Error(`Option '${key}' specifies the same position as option '${existingOption.key}' in group${intersection.length > 1 ? "s" : ""} ${intersection.map(s => `"${s}"`).join(", ")}.`);
-                        }
+
+                        this.shortNameMap[alias] = entry;
                     }
                     else {
+                        const longName = this.normalize(alias);
+                        if (this.longNameMap[longName]) {
+                            throw new Error(`Duplicate alias '${alias}' for option '${key}' conflicts with previous definition '${this.longNameMap[longName].key}'.`);
+                        }
+
+                        this.longNameMap[longName] = entry;
+                    }
+                }
+            }
+
+            if (option.position !== undefined) {
+                const options = this.positionMap[option.position] || (this.positionMap[option.position] = []);
+                if (!option.groups || option.groups.length === 0) {
+                    for (const existingOption of options) {
                         throw new Error(`Option '${key}' specifies the same position as option '${existingOption.key}'.`);
                     }
                 }
-            }
+                else {
+                    for (const existingOption of options) {
+                        if (existingOption.option.groups && existingOption.option.groups.length > 0) {
+                            const existingGroups = new Set(existingOption.option.groups);
+                            const intersection: string[] = [];
+                            for (const group of option.groups) {
+                                if (existingGroups.has(group)) {
+                                    intersection.push(group);
+                                }
+                            }
+                            if (intersection) {
+                                throw new Error(`Option '${key}' specifies the same position as option '${existingOption.key}' in group${intersection.length > 1 ? "s" : ""} ${intersection.map(s => `"${s}"`).join(", ")}.`);
+                            }
+                        }
+                        else {
+                            throw new Error(`Option '${key}' specifies the same position as option '${existingOption.key}'.`);
+                        }
+                    }
+                }
 
-            options.push(entry);
+                options.push(entry);
+            }
         }
 
         if (option.groups) {

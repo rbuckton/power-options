@@ -52,7 +52,7 @@ export interface CommandLineOptionMap {
 
 export interface CommandLineOption {
     /** The type for the option. Default "boolean". */
-    type?: "boolean" | "number" | "string";
+    type?: "boolean" | "number" | "string" | "command";
     /** The long name for the option. For example: --remove-comments */
     longName?: string;
     /** The short name for the option. For example: -R */
