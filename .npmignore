@@ -1,5 +1,7 @@
 .vscode
+.gitignore
 node_modules
 src
+baselines
+out/test
 gulpfile.js
-.gitignore

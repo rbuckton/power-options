@@ -6,3 +6,4 @@ import "./resolver";
 import "./parser";
 import "./binder";
 import "./evaluator";
+import "./printer";

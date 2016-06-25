@@ -1,19 +1,22 @@
 import { EOL } from "os";
 import * as path from "path";
 import * as tty from "tty";
-import { OptionResolver, CommandLineOptionProperty } from "./resolver";
+import * as net from "net";
+import * as chalk from "chalk";
+import { PassThrough } from "stream";
+import { ReadonlyCollection } from "./readonly";
+import { CommandResolver, Resolver, Option, Command } from "./resolver";
 import { parse } from "./parser";
 import { bind, BoundArgument } from "./binder";
 import { evaluate } from "./evaluator";
-import { printHelp, printError } from "./printer";
+import { getPackageDetails } from "./utils";
+import { HelpWriter } from "./printer";
 
-const truePattern = /^(1|t(rue)?|y(es)?)$/i;
-
-interface Map<T> { [key: string]: T; }
+declare module "tty" {
+    function isatty(s: NodeJS.WritableStream): s is WriteStream;
+}
 
 export interface CommandLineSettings {
-    /** The command line options. */
-    options: CommandLineOptionMap;
     /** The program's name. Default value loaded from package.json. */
     name?: string;
     /** The program's description. Default value loaded from package.json. */
@@ -35,13 +38,46 @@ export interface CommandLineSettings {
      */
     auto?: boolean | "print";
     /**
-     * The stream to use when writing help messages when "auto" is provided. Default is process.stdout.
+     * The stream to use when writing help messages. Default is "inherit".
      */
-    stdout?: NodeJS.WritableStream;
+    stdout?: "inherit" | "pipe" | NodeJS.WritableStream;
     /**
-     * The stream to use when writing error messages when "auto" is provided. Default is process.stdout.
+     * The stream to use when writing error messages. Default is "inherit".
      */
-    stderr?: NodeJS.WritableStream;
+    stderr?: "inherit" | "pipe" | NodeJS.WritableStream;
+    /**
+     * A value indicating whether to print messages in color.
+     */
+    color?: boolean | "force";
+    /** The command line options. */
+    options?: CommandLineOptionMap;
+    /** Commands */
+    commands?: CommandLineCommandMap;
+    /** An optional default parameter group. */
+    defaultGroup?: string;
+}
+
+export interface CommandLineCommandMap {
+    [key: string]: CommandLineCommand;
+}
+
+export interface CommandLineCommand {
+    /** The name of the command. */
+    commandName?: string;
+    /** Aliases for the command. */
+    alias?: string | string[];
+    /** Options for the command. */
+    options?: CommandLineOptionMap;
+    /** Indicates the commend should not be printed when printing help text. */
+    hidden?: boolean;
+    /** The usage message to print for the program. */
+    usage?: string | string[];
+    /** Examples to print for the program. */
+    example?: string | string[];
+    /** A string to use in help text to summarize this command. */
+    synopsis?: string;
+    /** A string to use in help text to describe the command. */
+    description?: string;
     /** An optional default parameter group. */
     defaultGroup?: string;
 }
@@ -52,13 +88,13 @@ export interface CommandLineOptionMap {
 
 export interface CommandLineOption {
     /** The type for the option. Default "boolean". */
-    type?: "boolean" | "number" | "string" | "command";
+    type?: "boolean" | "number" | "string";
     /** The long name for the option. For example: --remove-comments */
-    longName?: string;
+    longName?: string | null;
     /** The short name for the option. For example: -R */
     shortName?: string;
     /** Additional short (single character) or long names for the option. */
-    alias?: string[];
+    alias?: string | string[];
     /** Indicates an argument whose value can be determined based on the current position. */
     position?: number;
     /** Indicates that this option is required. */
@@ -74,12 +110,12 @@ export interface CommandLineOption {
     /** Indicates that any unmatched arguments become the value of this option. */
     rest?: boolean;
     /** Indicates the valid groups for this option. */
-    groups?: string[];
+    group?: string | string[];
     /** Indicates the option should not be printed when printing help text. */
     hidden?: boolean;
-    /** Indicates a string to use in help text for the argument of an option that expects a value. */
+    /** A string to use in help text for the argument of an option that expects a value. */
     param?: string;
-    /** Indicates a string to use in help text to describe the option. */
+    /** A string to use in help text to describe the option. */
     description?: string;
     /** Callback used to validate a supplied argument value. */
     validate?: (value: boolean | number | string, arg: string, parsedArgs: ParsedArgs) => CommandLineParseError;
@@ -88,7 +124,7 @@ export interface CommandLineOption {
     /** Callback used to specify the error message to use for this option. */
     error?: (arg: string, error: CommandLineParseError) => CommandLineParseError;
     /** Callback used to generate a default value for this option. */
-    defaultValue?: (parsedArgs: ParsedArgs, group: string) => ParsedArgumentType | CommandLineParseError;
+    defaultValue?: (parsedArgs: ParsedArgs, group: string | undefined) => ParsedArgumentType | CommandLineParseError;
 }
 
 export interface CommandLineParseError {
@@ -105,6 +141,7 @@ export interface ParsedArgs {
 
 export interface ParsedCommandLine<T> {
     options: T;
+    commandName?: string;
     group?: string;
     help?: boolean;
     error?: string;
@@ -112,16 +149,109 @@ export interface ParsedCommandLine<T> {
 }
 
 export function parseCommandLine<T>(args: string[], settings: CommandLineSettings): ParsedCommandLine<T> {
-    const resolver = new OptionResolver(settings);
-    const { parsedArguments } = parse(args);
-    const { boundArguments, groups } = bind(parsedArguments, resolver);
-    const result = evaluate<T>(boundArguments, groups, resolver);
-    if (settings.auto && (result.error || result.help)) {
-        const out = (settings.stdout || process.stdout) as tty.WriteStream;
-        const err = (settings.stderr || process.stderr) as tty.WriteStream;
-        if (result.error && err.isTTY) printError(settings, result.error);
-        if (result.help && out.isTTY) printHelp(settings, resolver);
-        if (settings.auto === true) process.exit(result.status);
+    return new CommandLine(settings).parse<T>(args);
+}
+
+export class CommandLine extends CommandResolver {
+    public readonly settings: CommandLineSettings;
+    public readonly name: string;
+    public readonly description: string;
+    public readonly version: string;
+    public readonly usages: ReadonlyCollection<string>;
+    public readonly examples: ReadonlyCollection<string>;
+    public readonly stdout: NodeJS.WritableStream;
+    public readonly stderr: NodeJS.WritableStream;
+    public readonly auto: boolean | "print";
+    public readonly color: boolean | "force";
+
+    private _colorStdout: boolean;
+    private _colorStderr: boolean;
+
+    constructor(settings: CommandLineSettings) {
+        super(settings);
+        const { auto, usage, example, color, stdout, stderr } = settings;
+        const { name, description, version } = getPackageDetails(settings);
+        this.settings = settings;
+        this.name = name || "";
+        this.description = description || "";
+        this.version = version || "";
+        this.auto = auto || false;
+        this.color = color || false;
+        this.usages = Array.isArray(usage) ? usage.slice() : usage ? [usage] : [];
+        this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
+        this.stdout = pickStream(stdout, process.stdout);
+        this.stderr = pickStream(stderr, process.stderr);
+        this._colorStdout = color === "force" ? true : this.color && tty.isatty(this.stdout);
+        this._colorStderr = color === "force" ? true : this.color && tty.isatty(this.stderr);
     }
-    return result;
+
+    public parse<T>(args: string[]): ParsedCommandLine<T> {
+        const { parsedArguments } = parse(args);
+        const { boundCommand, boundArguments, groups, resolver } = bind(parsedArguments, this);
+        const result = evaluate<T>(boundCommand, boundArguments, groups, resolver);
+        if (this.auto && (result.error || result.help)) {
+            const out = (this.stdout || process.stdout) as tty.WriteStream;
+            const err = (this.stderr || process.stderr) as tty.WriteStream;
+            if (result.error) this.printError(result.error);
+            if (result.help) this.printHelp(result.commandName);
+            if (this.auto === true) process.exit(result.status);
+        }
+        return result;
+    }
+
+    public printError(error: string) {
+        let message = `abort: ${error}${EOL}`;
+        if (this._colorStderr) {
+            message = chalk.bold.red(message);
+        }
+
+        this.stderr.write(message, "utf8");
+    }
+
+    public printHelp(commandName?: string) {
+        const command = commandName ? this.fromCommandName(commandName) : undefined;
+        if (commandName && !command) throw new Error(`Command '${commandName}' not found.`);
+
+        const resolver = command || this;
+        const width = tty.isatty(this.stdout) ? this.stdout.columns - 2 : 120;
+        const writer = new HelpWriter(this, command, { width, color: this._colorStdout });
+
+        const commands = this.getCommands()
+            .filter(x => !x.hidden)
+            .sort(Command.compare);
+
+        const generalOptions = this.getOwnOptions("*")
+            .filter(x => !x.hidden)
+            .sort(Option.compare);
+
+        const commandOptions = commandName
+            ? resolver.getOwnOptions("*")
+                .filter(x => !x.hidden)
+                .sort(Option.compare)
+            : [];
+
+        writer.addUsages(this.usages);
+        writer.addDefaultUsage(commands.length > 0, commandOptions.length > 0 || generalOptions.length > 0);
+        writer.addDescription(command ? command.description : this.description);
+        if (!command) writer.addCommands(commands);
+        writer.addOptions(commandOptions);
+        writer.addOptions(generalOptions);
+        writer.addExamples(this.examples);
+        writer.write(this.stdout);
+    }
+}
+
+function pickStream(stdio: "inherit" | "pipe" | number | NodeJS.WritableStream | undefined, inherit: NodeJS.WritableStream) {
+    if (typeof stdio === "string" || stdio === undefined) {
+        switch (stdio) {
+            case "pipe": return new PassThrough({ encoding: "utf8" });
+            default: return inherit;
+        }
+    }
+    else if (typeof stdio === "number") {
+        return new net.Socket({ fd: stdio, writable: true } as any);
+    }
+    else {
+        return stdio;
+    }
 }

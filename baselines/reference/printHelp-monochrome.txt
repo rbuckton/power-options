@@ -1,0 +1,15 @@
+usage: test <command> [options]
+
+commands:
+ z                 The 'z' command.
+
+general options:
+ -a                The -a option
+     --b <string>  The -b option
+     --c <number>  The -c option.
+                   On two lines.
+     --d <param[]> The -d option with a <param>.
+     --gab
+     --gbc
+ -h, --help        Prints this message.
+     --x <string>

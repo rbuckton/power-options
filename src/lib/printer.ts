@@ -1,244 +1,260 @@
 import * as path from "path";
 import * as tty from "tty";
+import * as chalk from "chalk";
 import { EOL } from "os";
-import { CommandLineSettings, CommandLineOption } from "./options";
-import { OptionResolver } from "./resolver";
+import { Command, Option } from "./resolver";
+import { CommandLine } from "./options";
+
+declare module "chalk" {
+    interface ChalkStyleMap { [key: string]: ChalkStyleElement; }
+    interface ChalkStyle { [key: string]: ChalkChain; }
+}
 
 const whitespacePattern = /^\s$/;
 
-interface PackageDetails {
-    name: string;
-    description: string;
-    version: string;
-}
-
-export function printError(settings: CommandLineSettings, error: string, err?: NodeJS.WritableStream) {
-    if (err === undefined) err = settings.stderr || process.stderr;
-    err.write(`abort: ${error}` + EOL);
-}
-
-export function printHelp(settings: CommandLineSettings, resolver?: OptionResolver, out?: NodeJS.WritableStream) {
-    if (resolver === undefined) resolver = new OptionResolver(settings);
-    if (out === undefined) out = settings.stdout || process.stdout;
-
-    const width = (<tty.WriteStream>out).isTTY ? (<tty.WriteStream>out).columns : 120;
-    const writer = new HelpBuilder({ width });
-    const details = getPackageDetails(settings);
-    const options = resolver.getOptions("*")
-        .filter(isVisibleOption)
-        .sort(compareOptions);
-
-    if (settings.usage) {
-        const usage = Array.isArray(settings.usage) ? settings.usage : [settings.usage];
-        if (usage.length > 0) {
-            for (let i = 0; i < usage.length; i++) {
-                writer.addDefinition(i === 0 ? "usage:" : "", usage[i]);
-            }
-
-            writer.addBreak();
-        }
-    }
-
-    if (details.description) {
-        writer.addLine(details.description);
-        writer.addBreak();
-    }
-
-    if (options.length) {
-        writer.addLine("options:");
-        for (const { key, option } of options) {
-            writer.addOption({
-                shortName: option.shortName,
-                longName: option.longName || (option.passthru ? undefined : key),
-                param: option.param,
-                passthru: option.passthru,
-                description: option.description
-            });
-        }
-
-        writer.addBreak();
-    }
-
-    if (settings.example) {
-        const examples = Array.isArray(settings.example) ? settings.example : [settings.example];
-        if (examples.length) {
-            writer.addLine(examples.length === 1 ? "example:" : "examples:");
-            for (const example of examples) {
-                writer.addLine();
-                writer.addLine(example);
-            }
-        }
-
-        writer.addBreak();
-    }
-
-    writer.write(out);
-}
-
-function compareOptions(x: CommandLineOption, y: CommandLineOption) {
-    let result = compareValues(x.position, y.position);
-    if (result !== 0) return result;
-    const x1 = (x.shortName || "") + (x.shortName && x.longName ? " " : "") + (x.longName || "");
-    const y1 = (y.shortName || "") + (y.shortName && y.longName ? " " : "") + (y.longName || "");
-    return x1 < y1 ? -1 : x1 > y1 ? +1 : 0;
-}
-
-function compareValues(x: any, y: any) {
-    if (x === undefined && y === undefined) return 0;
-    if (x === undefined) return +1;
-    if (y === undefined) return -1;
-    return x < y ? -1 : x > y ? +1 : 0;
-}
-
-function isVisibleOption(option: CommandLineOption) {
-    return !option.hidden;
-}
-
-function getPackageDetails(settings: CommandLineSettings) {
-    let { name, description, version } = settings;
-    if (!name || !description || !version) {
-        const json = typeof settings.package === "string"
-            ? readPackage(settings.package)
-            : settings.package === true
-                ? findPackage()
-                : undefined;
-        if (json) {
-            if (!name) name = json.name;
-            if (!description) description = json.description;
-            if (!version) version = json.version;
-        }
-    }
-    return { name, description, version };
-}
-
-function readPackage(file: string) {
-    if (!file) {
-        return undefined;
-    }
-
-    if (require.main) {
-        try {
-            return require.main.require(file);
-        }
-        catch (e) {
-            return undefined;
-        }
-    }
-
-    return undefined;
-}
-
-function findPackage() {
-    if (require.main) {
-        const json = readPackage("./package.json");
-        if (json) {
-            return json;
-        }
-
-        if (require.main.filename) {
-            let dirname = path.dirname(require.main.filename);
-            let lastdir: string = undefined;
-            while (dirname && dirname !== lastdir) {
-                const json = readPackage(path.join(dirname, "package.json"));
-                if (json) {
-                    return json;
-                }
-
-                dirname = path.dirname(lastdir = dirname);
-            }
-        }
-    }
-
-    return undefined;
-}
-
-interface HelpWriterOptions {
+export interface HelpWriterOptions {
     padding?: number;
     width?: number;
+    color?: boolean;
+    textColor?: string | chalk.ChalkChain;
+    executableColor?: string | chalk.ChalkChain;
+    headerColor?: string | chalk.ChalkChain;
+    commandColor?: string | chalk.ChalkChain;
+    optionColor?: string | chalk.ChalkChain;
+    passthruColor?: string | chalk.ChalkChain;
+    paramColor?: string | chalk.ChalkChain;
+    exampleColor?: string | chalk.ChalkChain;
+    usageColor?: string | chalk.ChalkChain;
+    descriptionColor?: string | chalk.ChalkChain;
 }
 
-interface HelpOption {
-    shortName?: string;
-    longName?: string;
-    passthru?: boolean;
-    param?: string;
-    description?: string;
+interface HelpText {
+    kind: "text";
+    text: string;
 }
 
 interface HelpDefinition {
+    kind: "definition";
     term: string;
     definition: string;
 }
 
-interface HelpLine {
-    text?: string;
-    definition?: HelpDefinition;
-    option?: CommandLineOption;
-    sectionBreak?: boolean;
+interface HelpSectionBreak {
+    kind: "break";
 }
 
-class HelpBuilder {
-    private padding: number;
-    private width: number;
-    private printShortNames: boolean;
-    private lines: HelpLine[] = [];
+interface HelpOption {
+    kind: "option";
+    option: Option;
+}
 
-    constructor(options?: HelpWriterOptions) {
-        this.padding = options && typeof options.padding === "number" ? options.padding : 1;
-        this.width = options && typeof options.width === "number" ? options.width : 120;
-        if (this.width > 160) {
-            this.width = 160;
+interface HelpCommand {
+    kind: "command";
+    command: Command;
+}
+
+type HelpEntry = HelpText | HelpDefinition | HelpCommand | HelpOption | HelpSectionBreak;
+
+const enum HelpWriterState {
+    Usage,
+    Description,
+    Commands,
+    Options,
+    Examples
+}
+
+export class HelpWriter {
+    private commandLine: CommandLine;
+    private padding: number = 1;
+    private width: number = 120;
+    private useColors: boolean = false;
+    private printShortNames: boolean = false;
+    private entries: HelpEntry[] = [];
+    private state?: HelpWriterState;
+    private hasWrittenCommand: boolean;
+    private hasWrittenCommandOption = false;
+    private examplesHeader?: HelpText;
+    private command?: Command;
+    private lastCommand?: Command;
+    private executableColor?: string | chalk.ChalkChain;
+    private textColor?: string | chalk.ChalkChain;
+    private headerColor?: string | chalk.ChalkChain;
+    private commandColor?: string | chalk.ChalkChain;
+    private passthruColor?: string | chalk.ChalkChain;
+    private optionColor?: string | chalk.ChalkChain;
+    private paramColor?: string | chalk.ChalkChain;
+    private exampleColor?: string | chalk.ChalkChain;
+    private usageColor?: string | chalk.ChalkChain;
+    private descriptionColor?: string | chalk.ChalkChain;
+
+    constructor(commandLine: CommandLine, command: Command | undefined, options: HelpWriterOptions = {}) {
+        const { padding = 1, width = 120, color = false } = options || {} as HelpWriterOptions;
+        this.commandLine = commandLine;
+        this.command = command;
+        this.hasWrittenCommand = command ? true : false;
+        this.padding = padding;
+        this.width = Math.min(160, width);
+        this.useColors = color;
+        this.textColor = options.textColor;
+        this.executableColor = options.executableColor || chalk.yellow.bold;
+        this.headerColor = options.headerColor || chalk.white.bold;
+        this.commandColor = options.commandColor || chalk.cyan.bold;
+        this.passthruColor = options.passthruColor || chalk.gray;
+        this.optionColor = options.optionColor;
+        this.paramColor = options.paramColor || chalk.gray;
+        this.exampleColor = options.exampleColor || chalk.gray;
+        this.usageColor = options.usageColor;
+        this.descriptionColor = options.descriptionColor;
+    }
+
+    public addUsages(usages: Iterable<string>) {
+        for (const usage of usages) {
+            this.addUsage(usage);
         }
     }
 
-    public addOption(option: HelpOption) {
-        this.lines.push({ option });
+    public addUsage(usage: string) {
+        if (usage) {
+            const prefix = this.switchTo(HelpWriterState.Usage) ? "usage: " : "      ";
+            this.addRawText(this.color(prefix, this.headerColor) + this.color(this.format(usage), this.usageColor));
+        }
+    }
+
+    public addDefaultUsage(hasCommands: boolean, hasOptions: boolean) {
+        if (this.state !== HelpWriterState.Usage) {
+            const usage: string[] = [this.color(this.commandLine.name, this.executableColor)];
+            if (hasCommands) usage.push(this.format("${commandName}"));
+            if (hasOptions) usage.push(this.color("[options]", this.optionColor));
+            this.addUsage(usage.join(" "));
+        }
+    }
+
+    public addExamples(examples: Iterable<string>) {
+        for (const example of examples) {
+            this.addExample(example);
+        }
+    }
+
+    public addExample(example: string) {
+        if (example) {
+            if (this.switchTo(HelpWriterState.Examples)) {
+                this.examplesHeader = this.addRawText(this.color("example:", this.headerColor));
+            }
+            else if (this.examplesHeader) {
+                this.examplesHeader.text = this.color("examples:", this.headerColor);
+            }
+
+            this.addRawText(EOL + this.color(this.format(example), this.exampleColor));
+        }
+    }
+
+    public addDescription(description: string) {
+        if (description) {
+            this.switchTo(HelpWriterState.Description);
+            this.addRawText(this.color(this.format(description), this.descriptionColor));
+        }
+    }
+
+    public addCommands(commands: Iterable<Command>) {
+        for (const command of commands) {
+            this.addCommand(command);
+        }
+    }
+
+    public addCommand(command: Command) {
+        if (command) {
+            if (this.switchTo(HelpWriterState.Commands)) {
+                this.addRawText(this.color("commands:", this.headerColor));
+                this.hasWrittenCommand = true;
+            }
+
+            this.entries.push({ kind: "command", command });
+        }
+    }
+
+    public addOptions(options: Iterable<Option>) {
+        for (const option of options) {
+            this.addOption(option);
+        }
+    }
+
+    public addOption(option: Option) {
+        if (option) {
+            const command = option.command;
+            if (this.switchTo(HelpWriterState.Options) || this.lastCommand !== command) {
+                this.lastCommand = command;
+                this.addBreak();
+                if (command) {
+                    this.addRawText(this.color(`'${command.commandName}' options:`, this.headerColor));
+                    this.hasWrittenCommandOption = true;
+                }
+                else if (this.hasWrittenCommandOption || this.hasWrittenCommand) {
+                    this.addRawText(this.color("general options:", this.headerColor));
+                }
+                else {
+                    this.addRawText(this.color("options:", this.headerColor));
+                }
+            }
+
+            this.entries.push({ kind: "option", option });
+        }
     }
 
     public addDefinition(term: string, definition: string) {
-        this.lines.push({ definition: { term, definition }});
+        const entry: HelpDefinition = { kind: "definition", term: this.format(term), definition: this.format(definition) };
+        this.entries.push(entry);
     }
 
-    public addLine(text?: string) {
-        this.lines.push({ text });
+    public addText(text: string = "") {
+        this.addRawText(this.format(text));
     }
 
-    public addBreak() {
-        if (this.lines.length > 0) {
-            this.lines[this.lines.length - 1].sectionBreak = true;
+    private addRawText(text: string) {
+        const entry: HelpText = { kind: "text", text };
+        this.entries.push(entry);
+        return entry;
+    }
+
+    private addBreak() {
+        const entries = this.entries;
+        const numEntries = entries.length;
+        if (numEntries > 0 && entries[numEntries - 1].kind !== "break") {
+            entries.push({ kind: "break" });
         }
     }
 
     public write(out: NodeJS.WritableStream) {
-        // compute term width
         let termWidth = 0;
         let hasShortNames = false;
-        for (const line of this.lines) {
-            const option = line.option;
-            if (option) {
-                let size = 0;
-                if (option.passthru) {
-                    size += 4;
-                }
-                else {
-                    if (option.shortName) {
-                        hasShortNames = true;
+        for (const entry of this.entries) {
+            if (entry.kind === "option") {
+                const option = entry.option;
+                if (option) {
+                    let size = 0;
+                    if (option.passthru) {
+                        size += 4;
+                    }
+                    else {
+                        if (option.shortName) {
+                            hasShortNames = true;
+                        }
+
+                        if (option.longName) {
+                            size += option.longName.length + 3;
+                        }
+
+                        if (option.param) {
+                            size += option.param.length + 3;
+                            if (option.multiple) {
+                                size += 2;
+                            }
+                        }
                     }
 
-                    if (option.longName) {
-                        size += option.longName.length + 3;
-                    }
-
-                    if (option.param) {
-                        size += option.param.length + 1;
+                    if (termWidth < size) {
+                        termWidth = size;
                     }
                 }
-
-                if (termWidth < size) {
-                    termWidth = size;
-                }
-
-                continue;
             }
         }
 
@@ -246,88 +262,83 @@ class HelpBuilder {
             termWidth += 4;
         }
 
-        for (const line of this.lines) {
-            const definition = line.definition;
-            if (definition) {
-                const size = definition.term.length + 1;
-                if (termWidth < size) {
-                    termWidth = size;
-                }
-
-                continue;
+        for (const entry of this.entries) {
+            switch (entry.kind) {
+            	case "definition":
+                    termWidth = Math.max(termWidth, entry.term.length + 1);
+                    break;
+                case "command":
+                    termWidth = Math.max(termWidth, entry.command.commandName.length + 2);
+                    break;
             }
         }
 
         // write each line
         const remainder = this.width - termWidth - this.padding;
         let sectionBreakRequested = false;
-        for (const line of this.lines) {
-            let text: string;
-            let definition: HelpDefinition;
-            const option = line.option;
-            if (option) {
-                let term = " ";
-                if (option.passthru) {
-                    term += `--`;
-                }
-                else {
-                    if (option.shortName) {
-                        term += `-${option.shortName}`;
+        for (let entry of this.entries) {
+            switch (entry.kind) {
+                case "option":
+                    const option = entry.option;
+                    let term = " ";
+                    if (option.passthru) {
+                        term += this.color(`--`, this.passthruColor);
+                    }
+                    else {
+                        if (option.shortName) {
+                            term += this.color(`-${option.shortName}`, this.optionColor);
+                            if (option.longName) {
+                                term += `, `;
+                            }
+                            else if (option.param) {
+                                term += ` `;
+                            }
+                        }
+                        else if (hasShortNames) {
+                            term += `    `;
+                        }
+
                         if (option.longName) {
-                            term += `, `;
+                            term += this.color(`--${option.longName}`, this.optionColor);
+                            if (option.param) {
+                                term += ` `;
+                            }
                         }
-                        else if (option.param) {
-                            term += ` `;
-                        }
-                    }
-                    else if (hasShortNames) {
-                        term += `    `;
-                    }
 
-                    if (option.longName) {
-                        term += `--${option.longName}`;
                         if (option.param) {
-                            term += ` `;
+                            term += this.color(`<${option.param}${option.multiple ? "[]" : ""}>`, this.paramColor);
                         }
                     }
 
-                    if (option.param) {
-                        term += option.param;
+                    entry = { kind: "definition", term, definition: this.format(option.description || "", option.command, option) };
+                    break;
+
+                case "command":
+                    const command = entry.command;
+                    entry = { kind: "definition", term: " " + this.color(command.commandName, this.commandColor), definition: this.format(command.synopsis, command) };
+                    break;
+            }
+
+            switch (entry.kind) {
+            	case "definition":
+                    const termLines = entry.term ? wordWrap(entry.term, termWidth) : [];
+                    const definitionLines = entry.definition ? wordWrap(entry.definition, remainder) : [];
+                    const lineCount = Math.max(termLines.length, definitionLines.length);
+                    for (let i = 0; i < lineCount; ++i) {
+                        const definitionLine = i < definitionLines.length ? definitionLines[i] : "";
+                        const termLine = padRight(i < termLines.length ? termLines[i] : "", definitionLine ? termWidth + this.padding : 0);
+                        writeln(out, this.color(termLine + definitionLine, this.textColor));
                     }
-                }
-
-                definition = { term, definition: option.description };
-            }
-            else {
-                definition = line.definition;
-            }
-
-            if (definition) {
-                const termLines = definition.term ? wordWrap(definition.term, termWidth) : [];
-                const definitionLines = definition.definition ? wordWrap(definition.definition, remainder) : [];
-                const lineCount = Math.max(termLines.length, definitionLines.length);
-                for (let i = 0; i < lineCount; ++i) {
-                    let line = "";
-                    if (i < termLines.length) {
-                        line += termLines[i];
+                    break;
+                case "text":
+                    const lines = wordWrap(this.color(entry.text, this.textColor), this.width);
+                    for (const line of lines) {
+                        writeln(out, line);
                     }
-                    if (i < definitionLines.length) {
-                        line = padRight(line, termWidth + this.padding);
-                        line += definitionLines[i];
-                    }
-
-                    writeln(out, line);
-                }
-            }
-            else {
-                const lines = wordWrap(line.text, this.width);
-                for (const line of lines) {
-                    writeln(out, line);
-                }
-            }
-
-            if (line.sectionBreak) {
-                sectionBreakRequested = line.sectionBreak;
+                    break;
+                case "break":
+                    sectionBreakRequested = true;
+                    break;
             }
         }
 
@@ -340,22 +351,181 @@ class HelpBuilder {
             out.write(text + EOL);
         }
     }
+
+    private switchTo(state: HelpWriterState) {
+        if (this.state === undefined) {
+            this.state = state;
+            return true;
+        }
+
+        if (this.state !== state) {
+            this.addBreak();
+            this.state = state;
+            return true;
+        }
+
+        return false;
+    }
+
+    private format(text: string, command?: Command, option?: Option) {
+        if (command === undefined) command = this.command;
+
+        const formatPattern = /(<\w+>)|\${(?:(-?\w+)|"([^"]+)")(?::([^}]+))?}/g;
+        return text.replace(formatPattern, (_, param, name, text, color) => {
+            if (param) {
+                return this.color(param, param === "<command>" ? this.commandColor : this.paramColor);
+            }
+
+            let result = "";
+            if (name) {
+                switch (name) {
+                    case "executableName":
+                        if (this.commandLine.name) {
+                            return this.color(this.commandLine.name, color || this.executableColor);
+                        }
+                        break;
+
+                    case "commandName":
+                        if (command) {
+                            return this.color(command.commandName, color || this.commandColor);
+                        }
+                        else if (option && option.command) {
+                            return this.color(option.command.commandName, color || this.commandColor);
+                        }
+                        else {
+                            return this.color("<command>", color || this.commandColor);
+                        }
+
+                    case "shortName":
+                        if (option && option.shortName) {
+                            return this.color("-" + option.shortName, color || this.optionColor);
+                        }
+                        break;
+
+                    case "longName":
+                        if (option && option.longName) {
+                            return this.color("--" + option.longName, color || this.optionColor);
+                        }
+                        break;
+
+                    case "parameterName":
+                        if (option && option.longName) {
+                            return this.color("--" + option.longName, color || this.optionColor);
+                        }
+                        if (option && option.shortName) {
+                            return this.color("-" + option.shortName, color || this.optionColor);
+                        }
+                        break;
+
+                    case "param":
+                        if (option && option.param) {
+                            return this.color("<" + option.param + ">", color || this.paramColor);
+                        }
+                        break;
+                }
+            }
+            else if (text) {
+                result = text;
+            }
+
+            if (color) {
+                this.color(result, color);
+            }
+
+            return result;
+        });
+    }
+
+    private color(text: string, style: string | chalk.ChalkChain | undefined) {
+        if (this.useColors && style && text) {
+            if (typeof style === "string") {
+                style = this.getStyle(style);
+            }
+            if (typeof style === "function") {
+                return style(text);
+            }
+        }
+        return text;
+    }
+
+    private getStyle(color: string): chalk.ChalkChain | undefined {
+        const colors = color.split(/\s+/g);
+        let chain: chalk.ChalkChain | undefined;
+        for (const color of colors) {
+            chain = this.getStyleWorker(color, chain, new Set<string>());
+        }
+        return chain;
+    }
+
+    private getStyleWorker(color: string, chain: chalk.ChalkChain | undefined, set: Set<string>): chalk.ChalkChain | undefined {
+        const link = this.getLink(color, chain);
+        if (link === undefined) {
+            return chain;
+        }
+        else if (typeof link === "function") {
+            return link;
+        }
+        else {
+            if (set.has(color)) {
+                return chain;
+            }
+
+            set.add(color);
+            const style = this.getStyleWorker(link, chain, set);
+            set.delete(color);
+            return style;
+        }
+    }
+
+    private getLink(color: string, chain: chalk.ChalkChain | undefined): string | chalk.ChalkChain | undefined {
+        switch (color) {
+            case "text": return this.textColor;
+            case "executable": return this.executableColor;
+            case "header": return this.headerColor;
+            case "command": return this.commandColor;
+            case "option": return this.optionColor;
+            case "passthru": return this.passthruColor;
+            case "param": return this.paramColor;
+            case "example": return this.exampleColor;
+            case "usage": return this.usageColor;
+            case "description": return this.descriptionColor;
+            case "call":
+            case "apply":
+            case "bind":
+            case "styles":
+            case "name":
+            case "length":
+            case "hasColor":
+            case "stripColor":
+            case "supportsColor":
+            case "enabled":
+            case "arguments":
+                return undefined;
+        }
+        return chain ? chain[color] : (<any>chalk)[color];
+    }
 }
 
 function padLeft(text: string, size: number, char: string = " ") {
-    while (text.length < size) text = char + text;
+    char = chalk.stripColor(char);
+    let length = chalk.stripColor(text).length;
+    while (length < size) {
+        text = char + text;
+        length++;
+    }
+
     return text;
 }
 
 function padRight(text: string, size: number, char: string = " ") {
-    while (text.length < size) text += char;
-    return text;
-}
-
-function printErrors(messages: string[]) {
-    for (let message of messages) {
-        console.error(message);
+    char = chalk.stripColor(char);
+    let length = chalk.stripColor(text).length;
+    while (length < size) {
+        text += char;
+        length++;
     }
+
+    return text;
 }
 
 function isWhitespace(ch: string, excludeLineTerminator?: boolean) {
@@ -379,13 +549,14 @@ function wordWrap(text: string, width: number) {
             line = "";
         }
         else {
-            const fullWidth = word.end - word.pos;
+            const fragment = text.substring(word.start, word.end);
+            const fullWidth = word.start - word.pos + chalk.stripColor(fragment).length;
             if (line.length > 0 && line.length + fullWidth > width) {
                 if (line || lines.length) lines.push(line);
-                line = text.substring(word.start, word.end);
+                line = fragment;
             }
             else {
-                line += text.substring(word.pos, word.end);
+                line += text.substring(word.pos, word.start) + fragment;
             }
         }
     }

@@ -2,20 +2,23 @@ import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
 import { CommandLineOption } from "../lib/options";
-import { OptionResolver } from "../lib/resolver";
+import { CommandResolver } from "../lib/resolver";
 import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/parser";
-import { bind, BoundArgument, BoundArgumentValue } from "../lib/binder";
+import { Option } from "../lib/resolver";
+import { bind, BoundArgument, BoundArgumentValue, BoundCommand } from "../lib/binder";
 
-const resolver = new OptionResolver({
+const resolver = new CommandResolver({
     options: {
         "a": { shortName: "a" },
         "b": { type: "string" },
         "c": { type: "number" },
         "d": { type: "string", multiple: true },
         "x": { type: "string", position: 0 },
-        "z": { type: "command" },
-        "gab": { type: "boolean", groups: ["a", "b"] },
-        "gbc": { type: "boolean", groups: ["b", "c"] }
+        "gab": { type: "boolean", group: ["a", "b"] },
+        "gbc": { type: "boolean", group: ["b", "c"] }
+    },
+    commands: {
+        "z": { }
     }
 });
 
@@ -31,10 +34,14 @@ describe("bind()", () => {
         [p = [parsed("--d", { longName: "d" }, { value: "e,f", values: ["e", "f"] })], [bound(p[0], "d", { value: "e,f", values: ["e", "f"] })]],
         [p = [parsed("--d", { longName: "d" }), arg("e,f", { value: "e,f", values: ["e", "f"] })], [bound(p[0], "d", { value: "e,f", values: ["e", "f"] })]],
         [p = [parsed("--d", { longName: "d" }), arg("e")], [bound(p[0], "d", { value: "e" })]],
-        [p = [arg("z"), arg("f")], [bound(p[0], "z", { value: true }), bound(p[1], "x", { value: "f" })]],
+        [p = [arg("z")], [], , command(p[0], "z")],
+        // [p = [arg("z"), arg("f")], [bound(p[0], "z", { value: true }), bound(p[1], "x", { value: "f" })]],
         [p = [parsed("--gab", { longName: "gab" }), parsed("--gbc", { longName: "gbc" })], [bound(p[0], "gab", { value: true }), bound(p[1], "gbc", { value: true })], ["b"]]
-    ], (parsed, bound, groups) => {
-        expect(bind(parsed, resolver)).to.deep.equal({ boundArguments: bound, groups });
+    ], (parsed, bound, groups, command) => {
+        const result = bind(parsed, resolver);
+        expect(result.boundArguments).to.deep.equal(bound);
+        expect(result.groups).to.deep.equal(groups);
+        expect(result.boundCommand).to.deep.equal(command);
     });
 });
 
@@ -59,9 +66,15 @@ function arg(text: string, argument?: ParsedArgumentValue) {
 function bound(parsed: ParsedArgument, key: string, argument: BoundArgumentValue): BoundArgument {
     return {
         parsed,
-        key,
-        option: key && resolver.get(key),
+        option: resolver.get(key),
         argument,
         error: undefined
+    };
+}
+
+function command(parsed: ParsedArgument, key: string): BoundCommand {
+    return {
+        parsed,
+        command: resolver.fromCommandName(key)
     };
 }

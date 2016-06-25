@@ -1,0 +1,12 @@
+[37m[1musage: [22m[39m[33m[1mtest[22m[39m [36m[1mz[22m[39m [options]
+
+[37m[1mgeneral options:[22m[39m
+ -a                The -a option
+     --b [90m<string>[39m  The -b option
+     --c [90m<number>[39m  The -c option.
+                   On two lines.
+     --d [90m<param[]>[39m The -d option with a [90m<param>[39m.
+     --gab
+     --gbc
+ -h, --help        Prints this message.
+     --x [90m<string>[39m

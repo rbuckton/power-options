@@ -1,4 +1,5 @@
 import { readFileSync } from "fs";
+import { Option } from "./resolver";
 
 const optionPattern = /^([-/](\w)|--(no[\-_])?([\-\w_]+))(?:([:=])(.*))?$/;
 const whitespacePattern = /\s/;
@@ -35,21 +36,21 @@ export function parse(args: string[], host?: ParserHost): ParseResult {
     // Parse each argument
     const parsedArguments: ParsedArgument[] = [];
     while (args.length) {
-        const arg = args.shift();
+        const arg = args.shift()!;
         parseArgument(arg, args, parsedArguments, host);
     }
 
     return { parsedArguments };
 }
 
-function parseArgument(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost) {
+function parseArgument(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost | undefined) {
     return tryParsePassthruOption(arg, args, parsedArguments, host)
         || tryParseOption(arg, args, parsedArguments, host)
         || tryParseResponseFile(arg, args, parsedArguments, host)
         || tryParseArgumentValue(arg, args, parsedArguments, host);
 }
 
-function tryParsePassthruOption(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost) {
+function tryParsePassthruOption(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost | undefined) {
     if (arg === "--") {
         parsedArguments.push({
             text: arg,
@@ -69,10 +70,10 @@ function tryParsePassthruOption(arg: string, args: string[], parsedArguments: Pa
     return false;
 }
 
-function tryParseOption(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost) {
+function tryParseOption(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost | undefined) {
     const match = optionPattern.exec(arg);
     if (match) {
-        const [, parameterName, shortName, no, longName, hasValue, value] = optionPattern.exec(arg);
+        const [, parameterName, shortName, no, longName, hasValue, value] = match;
         const parameter: ParsedParameter = {
             parameterName,
             shortName,
@@ -81,13 +82,13 @@ function tryParseOption(arg: string, args: string[], parsedArguments: ParsedArgu
             no: !!no
         };
 
-        let argument: ParsedArgumentValue;
+        let argument: ParsedArgumentValue | undefined;
         if (hasValue) {
             if (value) {
                 argument = parseArgumentValue(value, args);
             }
             else if (args.length) {
-                argument = parseArgumentValue(args.shift(), args);
+                argument = parseArgumentValue(args.shift()!, args);
             }
         }
 
@@ -102,7 +103,7 @@ function tryParseOption(arg: string, args: string[], parsedArguments: ParsedArgu
     return false;
 }
 
-function tryParseResponseFile(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost) {
+function tryParseResponseFile(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost | undefined) {
     const match = responseFilePattern.exec(arg);
     if (match) {
         const file = match[1];
@@ -119,7 +120,7 @@ function tryParseResponseFile(arg: string, args: string[], parsedArguments: Pars
     return false;
 }
 
-function tryParseArgumentValue(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost) {
+function tryParseArgumentValue(arg: string, args: string[], parsedArguments: ParsedArgument[], host: ParserHost | undefined) {
     // Hold onto unmatched arguments for later positional matching.
     parsedArguments.push({
         text: arg,
@@ -147,7 +148,7 @@ function parseArgumentValue(text: string, args: string[]): ParsedArgumentValue {
             if (startPos === text.length) {
                 // trailing comma, next argument continues list.
                 if (args.length > 0) {
-                    text = args.shift();
+                    text = args.shift()!;
                     value += " " + text;
                     pos = skipLeadingWhitespace(text, 0);
                     startPos = pos;
@@ -194,4 +195,21 @@ function trimTrailingWhitespace(text: string, end: number) {
     }
 
     return end;
+}
+
+export function getParameterName(parsed: ParsedArgument | undefined, option?: Option) {
+    if (parsed) {
+        const parameter = parsed.parameter;
+        if (parameter) {
+            const parameterName = parameter.parameterName;
+            if (parameterName) {
+                return parameterName;
+            }
+        }
+        return parsed.text;
+    }
+    if (option) {
+        return option.longName ? `--${option.longName}` : `-${option.shortName}`;
+    }
+    return "";
 }
