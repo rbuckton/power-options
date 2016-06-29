@@ -67,8 +67,8 @@ export class Option {
         this.description = description;
         this.hasValidator = typeof validate === "function" || typeof match === "string" || match instanceof RegExp || _in !== undefined || map !== undefined;
         this.hasConverter = typeof convert === "function" || map !== undefined;
-        this.hasCustomError = typeof error === "function";
-        this.hasDefaultValue = typeof defaultValue === "function";
+        this.hasCustomError = error !== undefined;
+        this.hasDefaultValue = defaultValue !== undefined;
         this._ignoreCase = ignoreCase || false;
         this._map = map;
         this._in = _in ? (_in as (string | number)[]).slice() : undefined;
