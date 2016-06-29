@@ -4,149 +4,18 @@ import * as tty from "tty";
 import * as net from "net";
 import * as chalk from "chalk";
 import { PassThrough } from "stream";
-import { ReadonlyCollection } from "./readonly";
 import { CommandResolver, Resolver, Option, Command } from "./resolver";
 import { parse } from "./parser";
 import { bind, BoundArgument } from "./binder";
 import { evaluate } from "./evaluator";
 import { getPackageDetails } from "./utils";
 import { HelpWriter } from "./printer";
+import { CommandLineSettings, ParsedCommandLine, ReadonlyCollection } from "./types";
 
 declare module "tty" {
     function isatty(s: NodeJS.WritableStream): s is WriteStream;
 }
 
-export interface CommandLineSettings {
-    /** The program's name. Default value loaded from package.json. */
-    name?: string;
-    /** The program's description. Default value loaded from package.json. */
-    description?: string;
-    /** The program's version. Default value loaded from package.json. */
-    version?: string;
-    /**
-     * An optional path to the program's package.json file, or a value indicating whether to
-     * attempt to automatically load the program's package.json file.
-     */
-    package?: string | boolean;
-    /** The usage message to print for the program. */
-    usage?: string | string[];
-    /** Examples to print for the program. */
-    example?: string | string[];
-    /**
-     * If a help option is provided, or an error is encountered, automatically prints help or error
-     * messages and exits.
-     */
-    auto?: boolean | "print";
-    /**
-     * The stream to use when writing help messages. Default is "inherit".
-     */
-    stdout?: "inherit" | "pipe" | NodeJS.WritableStream;
-    /**
-     * The stream to use when writing error messages. Default is "inherit".
-     */
-    stderr?: "inherit" | "pipe" | NodeJS.WritableStream;
-    /**
-     * A value indicating whether to print messages in color.
-     */
-    color?: boolean | "force";
-    /** The command line options. */
-    options?: CommandLineOptionMap;
-    /** Commands */
-    commands?: CommandLineCommandMap;
-    /** An optional default parameter group. */
-    defaultGroup?: string;
-}
-
-export interface CommandLineCommandMap {
-    [key: string]: CommandLineCommand;
-}
-
-export interface CommandLineCommand {
-    /** The name of the command. */
-    commandName?: string;
-    /** Aliases for the command. */
-    alias?: string | string[];
-    /** Options for the command. */
-    options?: CommandLineOptionMap;
-    /** Indicates the commend should not be printed when printing help text. */
-    hidden?: boolean;
-    /** The usage message to print for the program. */
-    usage?: string | string[];
-    /** Examples to print for the program. */
-    example?: string | string[];
-    /** A string to use in help text to summarize this command. */
-    synopsis?: string;
-    /** A string to use in help text to describe the command. */
-    description?: string;
-    /** An optional default parameter group. */
-    defaultGroup?: string;
-}
-
-export interface CommandLineOptionMap {
-    [key: string]: CommandLineOption;
-}
-
-export interface CommandLineOption {
-    /** The type for the option. Default "boolean". */
-    type?: "boolean" | "number" | "string";
-    /** The long name for the option. For example: --remove-comments */
-    longName?: string | null;
-    /** The short name for the option. For example: -R */
-    shortName?: string;
-    /** Additional short (single character) or long names for the option. */
-    alias?: string | string[];
-    /** Indicates an argument whose value can be determined based on the current position. */
-    position?: number;
-    /** Indicates that this option is required. */
-    required?: boolean;
-    /** Indicates that this option is a help option. */
-    help?: boolean;
-    /** Indicates that the option may only be provided once. By default, for options specified more than once only the last value is used. */
-    single?: boolean;
-    /** Indicates whether the option can be specified more than once. The results are provided as an array. */
-    multiple?: boolean;
-    /** Indicates that all remaining arguments are consumed as the value of this option. */
-    passthru?: boolean;
-    /** Indicates that any unmatched arguments become the value of this option. */
-    rest?: boolean;
-    /** Indicates the valid groups for this option. */
-    group?: string | string[];
-    /** Indicates the option should not be printed when printing help text. */
-    hidden?: boolean;
-    /** A string to use in help text for the argument of an option that expects a value. */
-    param?: string;
-    /** A string to use in help text to describe the option. */
-    description?: string;
-    /** Callback used to validate a supplied argument value. */
-    validate?: (value: boolean | number | string, arg: string, parsedArgs: ParsedArgs) => CommandLineParseError;
-    /** Callback used to convert a supplied argument value to a number or string. */
-    convert?: (value: string, arg: string) => number | string | CommandLineParseError,
-    /** Callback used to specify the error message to use for this option. */
-    error?: (arg: string, error: CommandLineParseError) => CommandLineParseError;
-    /** Callback used to generate a default value for this option. */
-    defaultValue?: (parsedArgs: ParsedArgs, group: string | undefined) => ParsedArgumentType | CommandLineParseError;
-}
-
-export interface CommandLineParseError {
-    error: string;
-    help?: boolean;
-    status?: number;
-}
-
-export type ParsedArgumentType = string | number | boolean | string[] | number[];
-
-export interface ParsedArgs {
-    [key: string]: ParsedArgumentType;
-}
-
-export interface ParsedCommandLine<T> {
-    options: T;
-    commandName?: string;
-    group?: string;
-    help?: boolean;
-    error?: string;
-    status?: number;
-}
 
 export function parseCommandLine<T>(args: string[], settings: CommandLineSettings): ParsedCommandLine<T> {
     return new CommandLine(settings).parse<T>(args);
@@ -218,25 +87,25 @@ export class CommandLine extends CommandResolver {
 
         const commands = this.getCommands()
             .filter(x => !x.hidden)
-            .sort(Command.compare);
+            // .sort(Command.compare);
 
         const generalOptions = this.getOwnOptions("*")
             .filter(x => !x.hidden)
-            .sort(Option.compare);
+            // .sort(Option.compare);
 
         const commandOptions = commandName
             ? resolver.getOwnOptions("*")
                 .filter(x => !x.hidden)
-                .sort(Option.compare)
+                // .sort(Option.compare)
             : [];
 
-        writer.addUsages(this.usages);
+        writer.addUsages(command ? command.usages : this.usages);
         writer.addDefaultUsage(commands.length > 0, commandOptions.length > 0 || generalOptions.length > 0);
         writer.addDescription(command ? command.description : this.description);
         if (!command) writer.addCommands(commands);
         writer.addOptions(commandOptions);
         writer.addOptions(generalOptions);
-        writer.addExamples(this.examples);
+        writer.addExamples(command ? command.examples : this.examples);
         writer.write(this.stdout);
     }
 }

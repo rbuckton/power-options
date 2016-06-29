@@ -9,7 +9,7 @@
      --c [90m<number>[39m  The -c option.
                    On two lines.
      --d [90m<param[]>[39m The -d option with a [90m<param>[39m.
+     --x [90m<string>[39m
      --gab
      --gbc
  -h, --help        Prints this message.
-     --x [90m<string>[39m

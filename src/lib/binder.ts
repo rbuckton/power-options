@@ -1,8 +1,9 @@
-import { CommandLineOption, CommandLineCommand, CommandLineParseError, ParsedArgumentType } from "./options";
+import { CommandLineOption, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, ParsedArgumentType } from "./types";
 import { CommandResolver, Command, Resolver, Option } from "./resolver";
 import { getParameterName, ParsedArgument } from "./parser";
+import { toCommandLineParseError } from "./utils";
 
-const truePattern = /^(1|t(rue)?|y(es)?)$/i;
+const booleanPattern = /^(?:(-?1|t(rue)?|y(es)?)|(0|f(alse)?|n(o)?))$/i;
 
 export interface BindResult {
     boundCommand: BoundCommand | undefined;
@@ -80,7 +81,7 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
                 if (!command) {
                     boundCommand = {
                         parsed,
-                        error: { error: `Command '${parsed.text}' was unrecognized.` }
+                        error: new CommandLineParseError(`Command '${parsed.text}' was unrecognized.`)
                     };
                 }
                 else {
@@ -157,11 +158,7 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
             }
             else {
                 boundArguments.push({
-                    error: {
-                        error: `Ambiguous parameter '${parsed.text}' at position ${position}. Try specifying the command line option explicitly.`,
-                        help: true,
-                        status: -1
-                    }
+                    error: new CommandLineParseError(`Ambiguous parameter '${parsed.text}' at position ${position}. Try specifying the command line option explicitly.`, /*help*/ true)
                 });
             }
         }
@@ -176,7 +173,7 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
                 parsed,
                 option: undefined,
                 argument: undefined,
-                error: { error: `Option '${parsed.text}' was unrecognized.`, help: true, status: -1 }
+                error: new CommandLineParseError(`Option '${parsed.text}' was unrecognized.`, /*help*/ true)
             });
         }
         else {
@@ -195,131 +192,159 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
 function bindArgument(parsed: ParsedArgument, option: Option | undefined, args: ParsedArgument[] | undefined, usedPositions: Set<number>): BoundArgument {
     let argument: BoundArgumentValue | undefined;
     let error: CommandLineParseError | undefined;
-    if (!option) {
-        error = { error: `Option '${getParameterName(parsed)}' was unrecognized.`, help: true, status: -1 };
-    }
-    else {
-        // If the option can be positional, mark that this position has been used.
-        if (option.position !== undefined) {
-            usedPositions.add(option.position);
+    try {
+        if (!option) {
+            throw new CommandLineParseError(`Option '${getParameterName(parsed)}' was unrecognized.`, /*help*/ true);
         }
+        else {
+            const { position, type } = option;
 
-        // Parse the argument value (if provided or needed).
-        switch (option.type) {
-            case "boolean":
-                argument = bindBooleanOption(parsed);
-                break;
+            // If the option can be positional, mark that this position has been used.
+            if (position !== undefined) {
+                usedPositions.add(position);
+            }
 
-            case "number":
-                const result = bindNumberOption(option, parsed, args);
-                if (isCommandLineParseError(result)) {
-                    error = result;
-                }
-                else {
-                    argument = result;
-                }
-                break;
+            // Parse the argument value (if provided or needed).
+            switch (type) {
+                case "boolean":
+                    argument = bindBooleanOption(option, parsed);
+                    break;
 
-            case "string":
-                argument = bindStringOption(option, parsed, args);
-                break;
-        }
+                case "number":
+                    argument = bindNumberOption(option, parsed, args);
+                    break;
 
-        if (!argument && !error) {
-            error = { error: `Option '${getParameterName(parsed)}' expects a value.`, help: true, status: -1 };
+                case "string":
+                    argument = bindStringOption(option, parsed, args);
+                    break;
+            }
+
+            if (argument === undefined) {
+                throw new CommandLineParseError(`Option '${getParameterName(parsed, option)}' expects a value.`, /*help*/ true);
+            }
         }
     }
-
+    catch (e) {
+        error = toCommandLineParseError(e);
+    }
     return { parsed, option, argument, error };
 }
 
-function bindBooleanOption(arg: ParsedArgument): BoundArgumentValue {
-    const boolean = arg.argument === undefined || arg.argument.value === undefined || truePattern.test(arg.argument.value);
-    const value = arg.parameter && arg.parameter.no ? !boolean : boolean;
+function bindBooleanOption(option: Option, arg: ParsedArgument): BoundArgumentValue {
+    let value = true;
+    const argument = arg.argument;
+    if (argument && argument.value) {
+        value = convertBoolean(option, arg, argument.value);
+    }
+    const parameter = arg.parameter;
+    if (parameter && parameter.no) {
+        value = !value;
+    }
+
     return { value };
 }
 
-function bindNumberOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | CommandLineParseError | undefined {
+function convertBoolean(option: Option, parsed: ParsedArgument, item: string): boolean {
+    if (option.hasConverter) {
+        const converted = option.convert(item, getParameterName(parsed, option));
+        if (typeof converted === "boolean") {
+            return converted;
+        }
+        else if (typeof converted === "string") {
+            item = converted;
+        }
+        else {
+            throw new CommandLineParseError(`Option '${getParameterName(parsed)}' expects a boolean.`, /*help*/ true);
+        }
+    }
+
+    const match = booleanPattern.exec(item);
+    if (match) {
+        return !!match[1];
+    }
+
+    throw new CommandLineParseError(`Option '${getParameterName(parsed)}' expects a boolean.`, /*help*/ true);
+}
+
+function bindNumberOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | undefined {
     const argument = arg.argument || readNextArgumentValue(args);
     if (argument) {
         if (argument.values !== undefined) {
             const values = convertNumbers(option, arg, argument.values);
-            return isCommandLineParseError(values) ? values : values && values.length === 1 ? { value: values[0] } : { values };
+            switch (values.length) {
+                case 0: return undefined;
+                case 1: return { value: values[0] };
+                default: return { value: argument.value, values };
+            }
         }
         else if (argument.value !== undefined) {
             const value = convertNumber(option, arg, argument.value);
-            return isCommandLineParseError(value) ? value : { value };
+            return { value };
         }
     }
     return undefined;
 }
 
-function convertNumbers(option: Option, parsed: ParsedArgument, items: string[]): number[] | CommandLineParseError | undefined {
+function convertNumbers(option: Option, parsed: ParsedArgument, items: string[]): number[] {
     const values: number[] = [];
     for (const item of items) {
-        const num = convertNumber(option, parsed, item);
-        if (typeof num === "number") {
-            values.push(num);
-        }
-        else {
-            return num;
-        }
+        values.push(convertNumber(option, parsed, item));
     }
     return values;
 }
 
-function convertNumber(option: Option, parsed: ParsedArgument, item: string): number | CommandLineParseError | undefined {
+function convertNumber(option: Option, parsed: ParsedArgument, item: string): number {
     if (option.hasConverter) {
-        const converted = option.convert(item, parsed.parameter!.parameterName!);
-        if (typeof converted === "number" || typeof converted === "object") {
+        const converted = option.convert(item, getParameterName(parsed, option));
+        if (typeof converted === "number") {
             return converted;
         }
-        if (typeof converted === "string") {
+        else if (typeof converted === "string") {
             item = converted;
+        }
+        else {
+            throw new CommandLineParseError(`Option '${getParameterName(parsed)}' expects a number.`, /*help*/ true);
         }
     }
 
     const num = parseInt(item);
     if (isNaN(num) || !isFinite(num)) {
-        return undefined;
+        throw new CommandLineParseError(`Option '${getParameterName(parsed)}' expects a number.`, /*help*/ true);
     }
 
     return num;
 }
 
-function bindStringOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | CommandLineParseError | undefined {
+function bindStringOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | undefined {
     const argument = arg.argument || readNextArgumentValue(args);
-    if (!argument) return undefined;
+    if (argument === undefined) return undefined;
     if (argument.values !== undefined) {
         const values = convertStrings(option, arg, argument.values);
-        return isCommandLineParseError(values) ? values : values.length === 1 ? { value: values[0] } : { value: argument.value, values };
+        switch (values.length) {
+            case 0: return undefined;
+            case 1: return { value: values[0] };
+            default: return { value: argument.value, values };
+        }
     }
     else if (argument.value !== undefined) {
         const value = convertString(option, arg, argument.value);
-        return isCommandLineParseError(value) ? value : { value };
+        return { value };
     }
 }
 
-function convertStrings(option: Option, parsed: ParsedArgument, items: string[]): string[] | CommandLineParseError {
+function convertStrings(option: Option, parsed: ParsedArgument, items: string[]): string[] {
     const values: string[] = [];
     for (const item of items) {
-        const text = convertString(option, parsed, item);
-        if (typeof text === "string") {
-            values.push(text);
-        }
-        else {
-            return text;
-        }
+        values.push(convertString(option, parsed, item));
     }
     return values;
 }
 
-function convertString(option: Option, parsed: ParsedArgument, item: string): string | CommandLineParseError {
+function convertString(option: Option, parsed: ParsedArgument, item: string): string {
     if (option.hasConverter) {
-        const converted = option.convert(item, parsed.parameter!.parameterName!);
-        if (typeof converted === "string" || typeof converted === "object") {
-            return converted;
-        }
+        const parameterName = getParameterName(parsed, option);
+        const converted = option.convert(item, parameterName);
+        return String(converted);
     }
 
     return item;
@@ -359,20 +384,10 @@ function applyGroupRestrictions(arg: BoundArgument, groups: string[] | undefined
 
             groups = modifiedGroups;
             if (groups.length === 0) {
-                arg.error = {
-                    error: `Option '${getParameterName(arg.parsed)}' conflicts with other options.`,
-                    help: true,
-                    status: -1
-                };
+                arg.error = new CommandLineParseError(`Option '${getParameterName(arg.parsed)}' conflicts with other options.`, /*help*/ true);
             }
         }
     }
 
     return groups;
-}
-
-export function isCommandLineParseError(value: any): value is CommandLineParseError {
-    return value !== null
-        && typeof value === "object"
-        && typeof value.error === "string";
 }

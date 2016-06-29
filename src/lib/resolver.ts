@@ -1,22 +1,19 @@
-import { CommandLineOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineSettings, ParsedArgs, ParsedArgumentType } from "./options";
-import { compareValues } from "./utils";
-import { ReadonlyCollection, ReadonlySet } from "./readonly";
+import { CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, ParsedArgumentType, ReadonlyCollection, ReadonlySet } from "./types";
+import { compareValues, isObjectLike } from "./utils";
 import { ParsedArgument } from "./parser";
 import { Query, from } from "iterable-query";
-
-// interface Map<T> { [key: string]: T; }
 
 const shortNamePattern = /^[a-z0-9?!]$/i;
 
 export class Option {
     public readonly key: string;
-    public readonly command: Command | undefined;
+    public readonly command?: Command;
     public readonly option: CommandLineOption;
     public readonly type: "boolean" | "number" | "string";
-    public readonly longName: string | undefined;
-    public readonly shortName: string | undefined;
+    public readonly longName?: string;
+    public readonly shortName?: string;
     public readonly aliases: ReadonlyCollection<string>;
-    public readonly position: number | undefined;
+    public readonly position?: number;
     public readonly required: boolean;
     public readonly help: boolean;
     public readonly single: boolean;
@@ -25,32 +22,38 @@ export class Option {
     public readonly rest: boolean;
     public readonly groups: ReadonlyCollection<string>;
     public readonly hidden: boolean;
-    public readonly param: string | undefined;
-    public readonly description: string | undefined;
+    public readonly param?: string;
+    public readonly description?: string;
     public readonly hasValidator: boolean;
     public readonly hasConverter: boolean;
     public readonly hasCustomError: boolean;
     public readonly hasDefaultValue: boolean;
 
+    private readonly _ignoreCase: boolean;
     private readonly _sortKey: string;
-    private readonly _validate: ((value: boolean | number | string, arg: string, parsedArgs: ParsedArgs) => CommandLineParseError) | undefined;
-    private readonly _convert: ((value: string, arg: string) => number | string | CommandLineParseError) | undefined;
-    private readonly _error: ((arg: string, error: CommandLineParseError) => CommandLineParseError) | undefined;
-    private readonly _defaultValue: ((parsedArgs: ParsedArgs, group: string | undefined) => ParsedArgumentType | CommandLineParseError) | undefined;
+    private readonly _map?: CommandLineValueMap<string | number>;
+    private readonly _caseInsensitiveMap?: CommandLineValueMap<string | number>;
+    private readonly _in?: (string | number)[];
+    private readonly _caseInsensitiveIn?: string[];
+    private readonly _match?: RegExp;
+    private readonly _validate?: ((value: boolean | number | string, parameterName: string, parsedArgs: any) => CommandLineParseError | void);
+    private readonly _convert?: ((value: string, parameterName: string) => string | number | boolean);
+    private readonly _error?: ((parameterName: string, error: CommandLineParseError) => CommandLineParseError) | CommandLineParseErrorDefinition | string;
+    private readonly _defaultValue?: ((parsedArgs: any, group: string | undefined) => ParsedArgumentType) | ParsedArgumentType;
 
     constructor(key: string, command: Command | undefined, commandLineOption: CommandLineOption) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
-        if (typeof commandLineOption !== "object" || !commandLineOption) throw Errors.invalidCommandLineOption(key);
-        const type = inferType(commandLineOption);
-        checkCommandLineOption(key, type, commandLineOption);
-        const { longName, shortName, alias, position, required, help, single, multiple, passthru, rest, group, hidden, param, description, validate, convert, error, defaultValue } = commandLineOption;
+        if (!isObjectLike(commandLineOption)) throw Errors.invalidCommandLineOption(key);
+        const type = inferType(commandLineOption as CommandLineUnspecifiedOption);
+        checkCommandLineOption(key, type, commandLineOption as CommandLineUnspecifiedOption);
+        const { longName, shortName, alias, position, required, help, single, multiple, passthru, rest, group, hidden, param, description, validate, convert, error, defaultValue, map, in: _in, match, ignoreCase } = commandLineOption as CommandLineUnspecifiedOption;
         this.key = key;
         this.command = command;
         this.option = commandLineOption;
         this.type = type;
-        this.longName = longName !== null ? normalizeName(longName || key) : shortName ? undefined : normalizeName(key);
+        this.longName = longName !== null ? normalizeName(longName || key, /*caseInsensitive*/ false) : shortName ? undefined : normalizeName(key, /*caseInsensitive*/ false);
         this.shortName = shortName ? shortName.trim() : undefined;
-        this.aliases = Array.isArray(alias) ? alias.map(normalizeName) : alias ? [normalizeName(alias)] : [];
+        this.aliases = Array.isArray(alias) ? alias.map(alias => normalizeName(alias, /*caseInsensitive*/ false)) : alias ? [normalizeName(alias, /*caseInsensitive*/ false)] : [];
         this.position = position;
         this.required = required || false;
         this.help = help || false;
@@ -62,19 +65,32 @@ export class Option {
         this.hidden = hidden || false;
         this.param = param || (type !== "boolean" ? type : undefined);
         this.description = description;
-        this.hasValidator = typeof validate === "function";
-        this.hasConverter = typeof convert === "function";
+        this.hasValidator = typeof validate === "function" || typeof match === "string" || match instanceof RegExp || _in !== undefined || map !== undefined;
+        this.hasConverter = typeof convert === "function" || map !== undefined;
         this.hasCustomError = typeof error === "function";
         this.hasDefaultValue = typeof defaultValue === "function";
+        this._ignoreCase = ignoreCase || false;
+        this._map = map;
+        this._in = _in ? (_in as (string | number)[]).slice() : undefined;
         this._validate = validate;
         this._convert = convert;
         this._error = error;
         this._defaultValue = defaultValue;
-
+        this._match = typeof match === "string" ? new RegExp(match, ignoreCase ? "i" : undefined) : match;
         this._sortKey = "";
         if (this.shortName) this._sortKey += this.shortName;
         if (this.shortName && this.longName) this._sortKey += " ";
         if (this.longName) this._sortKey += this.longName;
+
+        if (ignoreCase) {
+            if (this._in && type === "string") this._caseInsensitiveIn = this._in.map(v => String(v).toUpperCase());
+            if (this._map) {
+                this._caseInsensitiveMap = {};
+                for (const key of Object.keys(this._map)) {
+                    this._caseInsensitiveMap[key.toUpperCase()] = this._map[key];
+                }
+            }
+        }
     }
 
     public static compare(x: Option | undefined, y: Option | undefined) {
@@ -88,24 +104,75 @@ export class Option {
         return Option.compare(this, other);
     }
 
-    public validate(value: boolean | number | string, parameterName: string, parsedArgs: ParsedArgs): CommandLineParseError | undefined {
-        if (!this._validate) return undefined;
-        return this._validate.call(this.option, value, parameterName, parsedArgs);
+    public validate(value: boolean | number | string, parameterName: string, parsedArgs: any): CommandLineParseError | undefined {
+        if (typeof this._validate === "function") {
+            const result = this._validate.call(this.option, value, parameterName, parsedArgs);
+            if (result) {
+                return result;
+            }
+        }
+
+        if (this._match && typeof value === "string") {
+            if (!this._match.test(value)) {
+                return new CommandLineParseError(`Option '${parameterName}' was not valid.`);
+            }
+        }
+
+        if (this._map && typeof value === "string") {
+            if (!Object.prototype.hasOwnProperty.call(this._map, value)) {
+                if (!this._caseInsensitiveMap || !Object.prototype.hasOwnProperty.call(this._caseInsensitiveMap, value.toUpperCase())) {
+                    return new CommandLineParseError(`Option '${parameterName}' was not valid.`);
+                }
+            }
+        }
+
+        if (this._in && typeof value !== "boolean") {
+            if (this._in.indexOf(value) === -1) {
+                if (!this._caseInsensitiveIn || typeof value !== "string" || this._caseInsensitiveIn.indexOf(value.toUpperCase()) === -1) {
+                    return new CommandLineParseError(`Option '${parameterName}' was not valid.`);
+                }
+            }
+        }
     }
 
-    public convert(value: string, arg: string): number | string | CommandLineParseError {
-        if (!this._convert) throw Errors.noConversionDefined(this.key);
-        return this._convert.call(this.option, value, arg);
+    public convert(value: string, arg: string): string | number | boolean {
+        if (!this._convert && !this._map) throw Errors.noConversionDefined(this.key);
+        let result: any = value;
+        if (this._convert) {
+            result = this._convert.call(this.option, value, arg);
+        }
+        if (this._map) {
+            if (Object.prototype.hasOwnProperty.call(this._map, result)) {
+                result = this._map[result];
+            }
+            else if (this._caseInsensitiveMap) {
+                const key = String(result).toUpperCase();
+                if (Object.prototype.hasOwnProperty.call(this._caseInsensitiveMap, key)) {
+                    result = this._caseInsensitiveMap[key];
+                }
+            }
+        }
+        return result;
     }
 
     public error(arg: string, error: CommandLineParseError): CommandLineParseError {
-        if (!this._error) return error;
-        return this._error.call(this.option, arg, error) || error;
+        if (typeof this._error === "function") {
+            return this._error.call(this.option, arg, error) || error;
+        }
+        else if (typeof this._error === "object") {
+            return new CommandLineParseError(this._error.message, this._error.help, this._error.status);
+        }
+        else if (typeof this._error === "string") {
+            return new CommandLineParseError(this._error, /*help*/ true);
+        }
+        return error;
     }
 
-    public getDefaultValue(parsedArgs: ParsedArgs, group: string | undefined): ParsedArgumentType | CommandLineParseError | undefined {
-        if (!this._defaultValue) return undefined;
-        return this._defaultValue.call(this.option, parsedArgs, group);
+    public getDefaultValue(parsedArgs: any, group: string | undefined): ParsedArgumentType | undefined {
+        if (typeof this._defaultValue === "function") {
+            return this._defaultValue.call(this.option, parsedArgs, group);
+        }
+        return this._defaultValue;
     }
 }
 
@@ -157,7 +224,7 @@ export abstract class Resolver {
     }
 
     public fromLongName(longName: string): Option | undefined {
-        return this._longNameMap.get(normalizeName(longName))
+        return this._longNameMap.get(normalizeName(longName, /*caseInsensitive*/ true))
             || (this._parent ? this._parent.fromLongName(longName) : undefined);
     }
 
@@ -255,12 +322,13 @@ export abstract class Resolver {
     }
 
     private _addLongName(longName: string, option: Option, kind: string) {
-        const existing = this._longNameMap.get(longName);
+        const caseInsensitiveLongName = normalizeName(longName, /*caseInsensitive*/ true);
+        const existing = this._longNameMap.get(caseInsensitiveLongName);
         if (existing) {
             throw new Error(`Duplicate ${kind} '${longName}' for option '${option.key}' conflicts with previous definition '${existing.key}'.`);
         }
 
-        this._longNameMap.set(longName, option);
+        this._longNameMap.set(caseInsensitiveLongName, option);
     }
 
     private _addShortName(shortName: string, option: Option, kind: string) {
@@ -327,22 +395,22 @@ export class Command extends Resolver {
     public readonly hidden: boolean;
     public readonly usages: ReadonlyCollection<string>;
     public readonly examples: ReadonlyCollection<string>;
-    public readonly synopsis: string;
+    public readonly summary: string;
     public readonly description: string;
 
     constructor(parent: CommandResolver, key: string, commandLineCommand: CommandLineCommand) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
-        if (typeof commandLineCommand !== "object" || commandLineCommand === null) throw Errors.invalidCommand(key);
-        const { commandName, alias, options, hidden, usage, example, synopsis, description, defaultGroup } = commandLineCommand;
+        if (!isObjectLike(commandLineCommand)) throw Errors.invalidCommand(key);
+        const { commandName, alias, options, hidden, usage, example, summary, description, defaultGroup } = commandLineCommand;
         super(options, defaultGroup, parent);
         this.key = key;
         this.command = commandLineCommand;
-        this.commandName = normalizeName(commandName || key);
-        this.aliases = Array.isArray(alias) ? alias.map(normalizeName) : alias ? [normalizeName(alias)] : [];
+        this.commandName = normalizeName(commandName || key, /*caseInsensitive*/ false);
+        this.aliases = Array.isArray(alias) ? alias.map(alias => normalizeName(alias, /*caseInsensitive*/ false)) : alias ? [normalizeName(alias, /*caseInsensitive*/ false)] : [];
         this.hidden = hidden || false;
         this.usages = Array.isArray(usage) ? usage.slice() : usage ? [usage] : [];
         this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
-        this.synopsis = synopsis || "";
+        this.summary = summary || "";
         this.description = description || "";
     }
 
@@ -393,7 +461,7 @@ export class CommandResolver extends Resolver {
     }
 
     public fromCommandName(commandName: string) {
-        return this._commandMap.get(normalizeName(commandName));
+        return this._commandMap.get(normalizeName(commandName, /*caseInsensitive*/ true));
     }
 
     public getCommands(): ReadonlyCollection<Command> {
@@ -402,7 +470,7 @@ export class CommandResolver extends Resolver {
 
     public addOption(key: string, commandLineOption: CommandLineOption) {
         const option = super.addOption(key, commandLineOption);
-        if (commandLineOption.help) {
+        if (option.help) {
             this._hasHelp = true;
         }
         return option;
@@ -419,24 +487,24 @@ export class CommandResolver extends Resolver {
     }
 
     private _addCommandName(commandName: string, command: Command) {
+        commandName = normalizeName(commandName, /*caseInsensitive*/ true);
         const existing = this._commandMap.get(commandName);
         if (existing) throw Errors.duplicateCommand(commandName, command.key, existing.key);
         this._commandMap.set(commandName, command);
     }
 }
 
-export function normalizeName(name: string) {
-    return name && name
-        .trim()
-        .toLocaleLowerCase()
-        .replace(/_/g, "-");
+export function normalizeName(name: string, caseInsensitive: boolean) {
+    if (name) {
+        name = name.trim().replace(/_/g, "-");
+        if (caseInsensitive) {
+            name = name.toUpperCase();
+        }
+    }
+    return name;
 }
 
-export function normalizeOption(key: string, option: CommandLineOption) {
-    option.longName = normalizeName(option.longName || key);
-}
-
-function inferType(commandLineOption: CommandLineOption): "boolean" | "number" | "string" {
+function inferType(commandLineOption: CommandLineUnspecifiedOption): "boolean" | "number" | "string" {
     const type = commandLineOption.type;
     if (!type) {
         if (commandLineOption.passthru
@@ -453,7 +521,7 @@ function inferType(commandLineOption: CommandLineOption): "boolean" | "number" |
     return type;
 }
 
-function checkCommandLineOption(key: string, type: "boolean" | "number" | "string", commandLineOption: CommandLineOption) {
+function checkCommandLineOption(key: string, type: "boolean" | "number" | "string", commandLineOption: CommandLineUnspecifiedOption) {
     const { longName, shortName, alias, single, multiple, passthru, rest, convert, help, } = commandLineOption;
     switch (type) {
         case "boolean":

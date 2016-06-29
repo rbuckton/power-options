@@ -6,7 +6,7 @@ import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/par
 import { Option } from "../lib/resolver";
 import { evaluate } from "../lib/evaluator";
 import { BoundArgument, BoundArgumentValue, BoundCommand } from "../lib/binder";
-import { ParsedCommandLine } from "../lib/options";
+import { ParsedCommandLine } from "../lib/types";
 
 const resolver = new CommandResolver({
     options: {
@@ -78,6 +78,7 @@ function command(parsed: ParsedArgument, key: string): BoundCommand {
 function result<T>({ options, commandName, group, help, status = 0, error }: ParsedCommandLine<T>): ParsedCommandLine<T> {
     return {
         options,
+        command: commandName ? resolver.fromCommandName(commandName).command : undefined,
         commandName,
         group,
         help,

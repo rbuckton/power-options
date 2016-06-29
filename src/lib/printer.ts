@@ -31,6 +31,7 @@ export interface HelpWriterOptions {
 interface HelpText {
     kind: "text";
     text: string;
+    padding: number;
 }
 
 interface HelpDefinition {
@@ -116,15 +117,15 @@ export class HelpWriter {
     public addUsage(usage: string) {
         if (usage) {
             const prefix = this.switchTo(HelpWriterState.Usage) ? "usage: " : "      ";
-            this.addRawText(this.color(prefix, this.headerColor) + this.color(this.format(usage), this.usageColor));
+            this.addRawText(this.color(prefix, "header") + this.color(this.format(usage), "usage"));
         }
     }
 
     public addDefaultUsage(hasCommands: boolean, hasOptions: boolean) {
         if (this.state !== HelpWriterState.Usage) {
-            const usage: string[] = [this.color(this.commandLine.name, this.executableColor)];
+            const usage: string[] = [this.color(this.commandLine.name, "executable")];
             if (hasCommands) usage.push(this.format("${commandName}"));
-            if (hasOptions) usage.push(this.color("[options]", this.optionColor));
+            if (hasOptions) usage.push(this.color("[options]", "option"));
             this.addUsage(usage.join(" "));
         }
     }
@@ -138,20 +139,20 @@ export class HelpWriter {
     public addExample(example: string) {
         if (example) {
             if (this.switchTo(HelpWriterState.Examples)) {
-                this.examplesHeader = this.addRawText(this.color("example:", this.headerColor));
+                this.examplesHeader = this.addRawText(this.color("example:", "header"));
             }
             else if (this.examplesHeader) {
-                this.examplesHeader.text = this.color("examples:", this.headerColor);
+                this.examplesHeader.text = this.color("examples:", "header");
             }
 
-            this.addRawText(EOL + this.color(this.format(example), this.exampleColor));
+            this.addRawText(EOL + this.color(this.format(example), "example"), 1);
         }
     }
 
     public addDescription(description: string) {
         if (description) {
             this.switchTo(HelpWriterState.Description);
-            this.addRawText(this.color(this.format(description), this.descriptionColor));
+            this.addRawText(this.color(this.format(description), "description"));
         }
     }
 
@@ -164,7 +165,7 @@ export class HelpWriter {
     public addCommand(command: Command) {
         if (command) {
             if (this.switchTo(HelpWriterState.Commands)) {
-                this.addRawText(this.color("commands:", this.headerColor));
+                this.addRawText(this.color("commands:", "header"));
                 this.hasWrittenCommand = true;
             }
 
@@ -185,14 +186,14 @@ export class HelpWriter {
                 this.lastCommand = command;
                 this.addBreak();
                 if (command) {
-                    this.addRawText(this.color(`'${command.commandName}' options:`, this.headerColor));
+                    this.addRawText(this.color(`'${this.color(command.commandName, "command")}' options:`, "header"));
                     this.hasWrittenCommandOption = true;
                 }
                 else if (this.hasWrittenCommandOption || this.hasWrittenCommand) {
-                    this.addRawText(this.color("general options:", this.headerColor));
+                    this.addRawText(this.color("general options:", "header"));
                 }
                 else {
-                    this.addRawText(this.color("options:", this.headerColor));
+                    this.addRawText(this.color("options:", "header"));
                 }
             }
 
@@ -205,12 +206,12 @@ export class HelpWriter {
         this.entries.push(entry);
     }
 
-    public addText(text: string = "") {
-        this.addRawText(this.format(text));
+    public addText(text: string = "", padding = 0) {
+        this.addRawText(this.format(text), padding);
     }
 
-    private addRawText(text: string) {
-        const entry: HelpText = { kind: "text", text };
+    private addRawText(text: string, padding = 0) {
+        const entry: HelpText = { kind: "text", text, padding };
         this.entries.push(entry);
         return entry;
     }
@@ -282,11 +283,11 @@ export class HelpWriter {
                     const option = entry.option;
                     let term = " ";
                     if (option.passthru) {
-                        term += this.color(`--`, this.passthruColor);
+                        term += this.color(`--`, "passthru");
                     }
                     else {
                         if (option.shortName) {
-                            term += this.color(`-${option.shortName}`, this.optionColor);
+                            term += this.color(`-${option.shortName}`, "option");
                             if (option.longName) {
                                 term += `, `;
                             }
@@ -299,14 +300,14 @@ export class HelpWriter {
                         }
 
                         if (option.longName) {
-                            term += this.color(`--${option.longName}`, this.optionColor);
+                            term += this.color(`--${option.longName}`, "option");
                             if (option.param) {
                                 term += ` `;
                             }
                         }
 
                         if (option.param) {
-                            term += this.color(`<${option.param}${option.multiple ? "[]" : ""}>`, this.paramColor);
+                            term += this.color(`<${option.param}${option.multiple ? "[]" : ""}>`, "param");
                         }
                     }
 
@@ -315,7 +316,7 @@ export class HelpWriter {
 
                 case "command":
                     const command = entry.command;
-                    entry = { kind: "definition", term: " " + this.color(command.commandName, this.commandColor), definition: this.format(command.synopsis, command) };
+                    entry = { kind: "definition", term: " " + this.color(command.commandName, "command"), definition: this.format(command.summary, command) };
                     break;
             }
 
@@ -327,13 +328,14 @@ export class HelpWriter {
                     for (let i = 0; i < lineCount; ++i) {
                         const definitionLine = i < definitionLines.length ? definitionLines[i] : "";
                         const termLine = padRight(i < termLines.length ? termLines[i] : "", definitionLine ? termWidth + this.padding : 0);
-                        writeln(out, this.color(termLine + definitionLine, this.textColor));
+                        writeln(out, this.color(termLine + definitionLine, "text"));
                     }
                     break;
                 case "text":
-                    const lines = wordWrap(this.color(entry.text, this.textColor), this.width);
+                    const padding = Math.max(entry.padding, 0);
+                    const lines = wordWrap(this.color(entry.text, "text"), this.width - padding);
                     for (const line of lines) {
-                        writeln(out, line);
+                        writeln(out, padding ? padLeft("", padding) + line : line);
                     }
                     break;
                 case "break":
@@ -373,7 +375,7 @@ export class HelpWriter {
         const formatPattern = /(<\w+>)|\${(?:(-?\w+)|"([^"]+)")(?::([^}]+))?}/g;
         return text.replace(formatPattern, (_, param, name, text, color) => {
             if (param) {
-                return this.color(param, param === "<command>" ? this.commandColor : this.paramColor);
+                return this.color(param, param === "<command>" ? "command" : "param");
             }
 
             let result = "";
@@ -381,45 +383,45 @@ export class HelpWriter {
                 switch (name) {
                     case "executableName":
                         if (this.commandLine.name) {
-                            return this.color(this.commandLine.name, color || this.executableColor);
+                            return this.color(this.commandLine.name, color || "executable");
                         }
                         break;
 
                     case "commandName":
                         if (command) {
-                            return this.color(command.commandName, color || this.commandColor);
+                            return this.color(command.commandName, color || "command");
                         }
                         else if (option && option.command) {
-                            return this.color(option.command.commandName, color || this.commandColor);
+                            return this.color(option.command.commandName, color || "command");
                         }
                         else {
-                            return this.color("<command>", color || this.commandColor);
+                            return this.color("<command>", color || "command");
                         }
 
                     case "shortName":
                         if (option && option.shortName) {
-                            return this.color("-" + option.shortName, color || this.optionColor);
+                            return this.color("-" + option.shortName, color || "option");
                         }
                         break;
 
                     case "longName":
                         if (option && option.longName) {
-                            return this.color("--" + option.longName, color || this.optionColor);
+                            return this.color("--" + option.longName, color || "option");
                         }
                         break;
 
                     case "parameterName":
                         if (option && option.longName) {
-                            return this.color("--" + option.longName, color || this.optionColor);
+                            return this.color("--" + option.longName, color || "option");
                         }
                         if (option && option.shortName) {
-                            return this.color("-" + option.shortName, color || this.optionColor);
+                            return this.color("-" + option.shortName, color || "option");
                         }
                         break;
 
                     case "param":
                         if (option && option.param) {
-                            return this.color("<" + option.param + ">", color || this.paramColor);
+                            return this.color("<" + option.param + ">", color || "param");
                         }
                         break;
                 }

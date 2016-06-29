@@ -3,7 +3,7 @@ import { PassThrough, Writable } from "stream";
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandLine, CommandLineSettings } from "../lib/options";
+import { CommandLine, CommandLineSettings } from "../lib/index";
 import { baseline } from "./baseline";
 
 const settings: CommandLineSettings = {
@@ -18,7 +18,7 @@ const settings: CommandLineSettings = {
         "gbc": { type: "boolean", group: ["b", "c"] }
     },
     commands: {
-        "z": { synopsis: "The 'z' command." }
+        "z": { summary: "The 'z' command." }
     }
 };
 

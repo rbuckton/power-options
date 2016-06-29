@@ -1,5 +1,5 @@
 import * as path from "path";
-import { CommandLineSettings } from "./options";
+import { CommandLineSettings, CommandLineParseError, CommandLineParseErrorDefinition } from "./types";
 
 export interface PackageDetails {
     name: string | undefined;
@@ -70,4 +70,33 @@ function findPackage() {
     }
 
     return undefined;
+}
+
+export function isCommandLineParseErrorDefinition(value: any): value is CommandLineParseErrorDefinition {
+    if (value instanceof CommandLineParseError) return true;
+    return value !== null
+        && typeof value === "object"
+        && typeof value.message === "string"
+        && (typeof value.help === "boolean" || value.help === undefined)
+        && (typeof value.status === "number" || value.status === undefined);
+}
+
+export function toCommandLineParseError(e: any) {
+    if (e instanceof CommandLineParseError) {
+        return e;
+    }
+    else if (e instanceof Error) {
+        return new CommandLineParseError(e.message);
+    }
+    else if (isCommandLineParseErrorDefinition(e)) {
+        return new CommandLineParseError(e.message, e.help, e.status);
+    }
+    else {
+        return new CommandLineParseError(String(e));
+    }
+}
+
+export function isObjectLike(value: any): boolean {
+    if (value === null) return false;
+    return typeof value === "object" || typeof value === "function";
 }

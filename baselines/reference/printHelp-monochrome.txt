@@ -9,7 +9,7 @@ general options:
      --c <number>  The -c option.
                    On two lines.
      --d <param[]> The -d option with a <param>.
+     --x <string>
      --gab
      --gbc
  -h, --help        Prints this message.
-     --x <string>

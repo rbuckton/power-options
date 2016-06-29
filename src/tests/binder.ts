@@ -1,7 +1,7 @@
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandLineOption } from "../lib/options";
+import { CommandLineOption } from "../lib/types";
 import { CommandResolver } from "../lib/resolver";
 import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/parser";
 import { Option } from "../lib/resolver";

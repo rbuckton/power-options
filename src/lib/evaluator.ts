@@ -1,12 +1,14 @@
-import { ParsedCommandLine, CommandLineOption, CommandLineParseError, ParsedArgs, ParsedArgumentType } from "./options";
+import { ParsedCommandLine, CommandLineOption, CommandLineCommand, CommandLineParseError, ParsedArgumentType } from "./types";
 import { getParameterName } from "./parser";
 import { Resolver, Option } from "./resolver";
-import { BoundCommand, BoundArgument, isCommandLineParseError } from "./binder";
+import { BoundCommand, BoundArgument } from "./binder";
+import { toCommandLineParseError } from "./utils";
 
 export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArguments: BoundArgument[], groups: string[] | undefined, resolver: Resolver): ParsedCommandLine<T> {
     const commandName = boundCommand && boundCommand.command && boundCommand.command.commandName;
     let ok = true;
-    let options = <T & ParsedArgs>{};
+    let options: any = {};
+    let command: CommandLineCommand | undefined;
     let group: string | undefined = undefined;
     let help: boolean | undefined = undefined;
     let error: string | undefined = undefined;
@@ -24,7 +26,11 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
     if (ok) ok = fillDefaultValues();
     if (ok) ok = validateRequiredValues();
 
-    return { options, commandName, group, help, error, status };
+    if (ok && !help && !error && boundCommand && boundCommand.command) {
+        command = boundCommand.command.command;
+    }
+
+    return { options, commandName, command, group, help, error, status };
 
     function evaluateArgument(bound: BoundArgument) {
         if (bound.error) {
@@ -49,24 +55,30 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
 
         // Validate the value for the option.
         if (option.hasValidator) {
-            if (argument.values !== undefined) {
-                for (const item of argument.values) {
-                    const result = option.validate(item, parameterName, options);
+            try {
+                if (argument.values !== undefined) {
+                    for (const item of argument.values) {
+                        const result = option.validate(item, parameterName, options);
+                        if (result) {
+                            reportError(result);
+                            return false;
+                        }
+                    }
+                }
+                else if (argument.value !== undefined) {
+                    const result = option.validate(argument.value!, parameterName, options);
                     if (result) {
                         reportError(result);
                         return false;
                     }
                 }
-            }
-            else if (argument.value !== undefined) {
-                const result = option.validate(argument.value!, parameterName, options);
-                if (result) {
-                    reportError(result);
-                    return false;
+                else {
+                    return false; // TODO: report error
                 }
             }
-            else {
-                return false; // TODO: report error
+            catch (e) {
+                reportError(e);
+                return false;
             }
         }
 
@@ -87,22 +99,20 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
         }
         else {
             if (argument.values !== undefined) {
-                reportError({ error: `Option '${parameterName}' does not allow multiple values.`, help: true, status: -1 });
+                reportError(new CommandLineParseError(`Option '${parameterName}' does not allow multiple values.`, /*help*/ true));
                 return false;
             }
             else if (argument.value !== undefined) {
-                if (option.single && options.hasOwnProperty(key)) {
-                    reportOptionError(parameterName, option, { error: `Option '${parameterName}' already supplied.`, help: true, status: -1 });
+                if (option.single && Object.prototype.hasOwnProperty.call(options, key)) {
+                    reportOptionError(parameterName, option, new CommandLineParseError(`Option '${parameterName}' already supplied.`, /*help*/ true));
                     return false;
                 }
-
                 options[key] = argument.value;
             }
             else {
                 return false; // TODO: report error
             }
         }
-
         return true;
     }
 
@@ -125,32 +135,33 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
             // Set the default value of the option if it has not been provided and has a 'defaultValue' function.
             const key = option.key;
             if (option.hasDefaultValue && !options.hasOwnProperty(key)) {
-                const defaultValue = option.getDefaultValue(options, group);
-                if (defaultValue !== undefined) {
-                    if (isCommandLineParseError(defaultValue)) {
-                        reportError(defaultValue);
-                        return false;
-                    }
-                    else if (option.multiple) {
-                        if (Array.isArray(defaultValue)) {
-                            options[key] = defaultValue;
-                        }
-                        else if (typeof defaultValue === "number" || typeof defaultValue === "string") {
-                            options[key] = [defaultValue] as number[] | string[];
-                        }
-                    }
-                    else {
-                        if (Array.isArray(defaultValue)) {
-                            options[key] = defaultValue[0];
+                try {
+                    const defaultValue = option.getDefaultValue(options, group);
+                    if (defaultValue !== undefined) {
+                        if (option.multiple) {
+                            if (Array.isArray(defaultValue)) {
+                                options[key] = defaultValue;
+                            }
+                            else if (typeof defaultValue === "number" || typeof defaultValue === "string") {
+                                options[key] = [defaultValue] as number[] | string[];
+                            }
                         }
                         else {
-                            options[key] = defaultValue;
+                            if (Array.isArray(defaultValue)) {
+                                options[key] = defaultValue[0];
+                            }
+                            else {
+                                options[key] = defaultValue;
+                            }
                         }
                     }
                 }
+                catch (e) {
+                    reportError(e);
+                    return false;
+                }
             }
         }
-
         return true;
     }
 
@@ -160,7 +171,7 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
             const key = option.key;
             if (option.required && !options.hasOwnProperty(key)) {
                 const parameterName = getParameterName(/*parsed*/ undefined, option);
-                reportError({ error: `Option '${parameterName}' is required.`, help: true });
+                reportError(new CommandLineParseError(`Option '${parameterName}' is required.`, /*help*/ true));
                 return false;
             }
         }
@@ -168,13 +179,13 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
         return true;
     }
 
-    function reportOptionError(parameterName: string, option: Option, parseError: CommandLineParseError) {
-        reportError(option ? option.error(parameterName, parseError) : parseError);
+    function reportOptionError(parameterName: string, option: Option, e: any) {
+        reportError(option ? option.error(parameterName, toCommandLineParseError(e)) : e);
     }
 
-    function reportError(parseError: CommandLineParseError) {
+    function reportError(e: any) {
         if (!help && !error) {
-            ({ error, help, status = -1 } = parseError);
+            ({ message: error, help = false, status = -1 } = toCommandLineParseError(e));
         }
     }
 }
