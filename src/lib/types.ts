@@ -152,6 +152,7 @@ export interface CommandLineOptionSet {
     setName?: string;
     hidden?: boolean;
     merge?: boolean;
+    include?: string | string[];
     options?: CommandLineOptionMap;
 }
 

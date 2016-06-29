@@ -12,14 +12,17 @@ export class OptionSet {
     public readonly hidden: boolean;
     public readonly merge: boolean;
     public readonly visibility: "default" | "hidden";
+    public readonly include: ReadonlyCollection<string>;
 
     constructor(key: string, set: CommandLineOptionSet) {
+        const { setName = key, hidden = false, merge = false, include } = set;
         this.key = key;
         this.set = set;
-        this.setName = set.setName || key;
-        this.hidden = set.hidden || false;
-        this.merge = set.merge || false;
-        this.visibility = set.hidden ? "hidden" : "default";
+        this.setName = setName;
+        this.hidden = hidden;
+        this.merge = merge;
+        this.include = Array.isArray(include) ? include : typeof include === "string" ? [include] : [];
+        this.visibility = hidden ? "hidden" : "default";
     }
 
     public static compare(x: OptionSet | undefined, y: OptionSet | undefined) {
@@ -59,6 +62,7 @@ export class Option {
     public readonly hasConverter: boolean;
     public readonly hasCustomError: boolean;
     public readonly hasDefaultValue: boolean;
+    public readonly defaultValue?: ParsedArgumentType;
     public readonly visibility: "default" | "hidden";
 
     private readonly _ignoreCase: boolean;
@@ -111,6 +115,7 @@ export class Option {
         this._defaultValue = defaultValue;
         this._match = typeof match === "string" ? new RegExp(match, ignoreCase ? "i" : undefined) : match;
         this._sortKey = "";
+        this.defaultValue = typeof this._defaultValue !== "function" ? this._defaultValue : undefined;
         this.visibility = (this.hidden || (optionSet && optionSet.hidden) || (command && command.hidden)) ? "hidden" : "default";
         this.parameterName = this.passthru ? "--" : this.longName ? `--${this.longName}` : `-${this.shortName}`;
 
@@ -375,10 +380,22 @@ export abstract class Resolver {
         return option;
     }
 
-    protected _addOptionSet(name: string) {
-        const optionSet = this._getOptionSet(name);
-        if (optionSet) {
-            this._addOptions(optionSet.set.options, optionSet);
+    protected _addOptionSets(include: Iterable<string> | undefined) {
+        if (include) {
+            this._addOptionSetsWorker(include, new Set<string>());
+        }
+    }
+
+    private _addOptionSetsWorker(include: Iterable<string>, includedSets: Set<string>) {
+        for (const name of include) {
+            if (!includedSets.has(name)) {
+                includedSets.add(name);
+                const optionSet = this._getOptionSet(name);
+                if (optionSet) {
+                    this._addOptions(optionSet.set.options, optionSet);
+                    this._addOptionSetsWorker(optionSet.include, includedSets);
+                }
+            }
         }
     }
 
@@ -509,9 +526,7 @@ export class Command extends Resolver {
         this.description = description || "";
         this.visibility = hidden ? "hidden" : "default";
         if (include) {
-            for (const name of Array.isArray(include) ? include : [include]) {
-                this._addOptionSet(name);
-            }
+            this._addOptionSets(Array.isArray(include) ? include : [include]);
         }
     }
 

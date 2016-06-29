@@ -131,9 +131,14 @@ export class HelpWriter {
                     .toArray();
 
                 const positionalOptions = Query
-                    .from(this.resolver.getOptions(group))
-                    .where(option => option.position !== undefined && this.isVisible(option) && !option.passthru)
+                    .from(availableOptions)
+                    .where(option => option.position !== undefined && !option.passthru)
                     .orderBy(option => option.position)
+                    .toArray();
+
+                const requiredOptions = Query
+                    .from(availableOptions)
+                    .where(option => option.position === undefined && !option.passthru && option.required)
                     .toArray();
 
                 const restOption = Query.from(availableOptions).where(option => option.rest).single();
@@ -146,6 +151,11 @@ export class HelpWriter {
 
                 let numOptions = 0;
                 for (const option of positionalOptions) {
+                    usage.push(this.format(option.toUsageString()));
+                    numOptions++;
+                }
+
+                for (const option of requiredOptions) {
                     usage.push(this.format(option.toUsageString()));
                     numOptions++;
                 }
@@ -298,7 +308,7 @@ export class HelpWriter {
                         size += 3;
                     }
                     else {
-                        if (option.shortName) {
+                        if (option.shortName && (!option.longName || option.type !== "boolean" || option.defaultValue !== true)) {
                             hasShortNames = true;
                         }
 
@@ -352,20 +362,23 @@ export class HelpWriter {
                         term += `-- `;
                     }
                     else {
-                        if (!option.shortName && hasShortNames) {
+                        if (option.shortName && (!option.longName || option.type !== "boolean" || option.defaultValue !== true)) {
+                            term += this.color(`-${option.shortName}`, "option");
+                            if (option.longName) {
+                                term += ` `;
+                            }
+                        }
+                        else if (hasShortNames) {
                             term += `   `;
                         }
 
-                        if (option.shortName) {
-                            term += this.color(`-${option.shortName}`, "option");
-                        }
-
-                        if (option.shortName && option.longName) {
-                            term += ` `;
-                        }
-
                         if (option.longName) {
-                            term += this.color(`--${option.longName}`, "option");
+                            if (option.type === "boolean" && option.defaultValue === true) {
+                                term += this.color(`--no-${option.longName}`, "option");
+                            }
+                            else {
+                                term += this.color(`--${option.longName}`, "option");
+                            }
                         }
 
                         if (option.param) {
@@ -445,7 +458,7 @@ export class HelpWriter {
     private format(text: string, command?: Command, option?: Option, highlight?: boolean): string {
         if (command === undefined) command = this.command;
 
-        const formatPattern = /(<\w+>)|(^|\b|\s|\[)(-(\w)\b|--(?:no[\-_])?([\w\-_]+)|(--))|\$([a-z]+)|\${(.*?):(\w+)}/gi;
+        const formatPattern = /(<\w+(?:\[\])?>)|(^|\b|\s|\[)(-(\w)\b|--(?:no[\-_])?([\w\-_]+)|(--))|\$([a-z]+)|\${(.*?):(\w+)}/gi;
         return text.replace(formatPattern, (_, param, space, parameterName, shortName, longName, passthru, name, text, color) => {
             if (param) {
                 return this.color(param, param === "<command>" ? "command" : "param");
