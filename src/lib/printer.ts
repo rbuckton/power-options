@@ -454,7 +454,7 @@ export class HelpWriter {
                 const resolver: Resolver = this.command || this.commandLine;
                 const option = longName ? resolver.fromLongName(longName) : shortName ? resolver.fromShortName(shortName) : undefined;
                 if (option) {
-                    return space + this.color(parameterName, "optionHighlight");
+                    return space + this.color(parameterName, highlight ? "optionHighlight" : "option");
                 }
             }
             else if (passthru) {

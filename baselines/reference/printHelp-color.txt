@@ -1,6 +1,6 @@
-[37m[1musage: [22m[39m[33m[1mtest[22m[39m [36m[1m<command>[22m[39m [[[37m[1m--x[22m[39m] [90m<string>[39m] [[37m[1m--gab[22m[39m] [[37m[1m--gac[22m[39m] [[[37m[1m--rest[22m[39m] <string[]>] [options] [[90m--[39m]
-[37m[1m       [22m[39m[33m[1mtest[22m[39m [36m[1m<command>[22m[39m [[[37m[1m--x[22m[39m] [90m<string>[39m] [[37m[1m--gab[22m[39m] [[37m[1m--gbc[22m[39m] [[[37m[1m--rest[22m[39m] <string[]>] [options] [[90m--[39m]
-[37m[1m       [22m[39m[33m[1mtest[22m[39m [36m[1m<command>[22m[39m [[[37m[1m--x[22m[39m] [90m<string>[39m] [[37m[1m--gbc[22m[39m] [[37m[1m--gac[22m[39m] [[[37m[1m--rest[22m[39m] <string[]>] [options] [[90m--[39m]
+[37m[1musage: [22m[39m[33m[1mtest[22m[39m [36m[1m<command>[22m[39m [[--x] [90m<string>[39m] [--gab] [--gac] [[--rest] <string[]>] [options] [[90m--[39m]
+[37m[1m       [22m[39m[33m[1mtest[22m[39m [36m[1m<command>[22m[39m [[--x] [90m<string>[39m] [--gab] [--gbc] [[--rest] <string[]>] [options] [[90m--[39m]
+[37m[1m       [22m[39m[33m[1mtest[22m[39m [36m[1m<command>[22m[39m [[--x] [90m<string>[39m] [--gbc] [--gac] [[--rest] <string[]>] [options] [[90m--[39m]
 
 [37m[1mcommands:[22m[39m
  [36m[1mz[22m[39m                     The 'z' command.
