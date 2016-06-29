@@ -68,6 +68,11 @@ export interface CommandLineSettings {
      * An optional default parameter group.
      */
     defaultGroup?: string;
+
+    /**
+     * Named sets of reusable command-line options.
+     */
+    optionSets?: CommandLineOptionSets;
 }
 
 /**
@@ -93,9 +98,20 @@ export interface CommandLineCommand {
     alias?: string | string[];
 
     /**
+     * Includes named option sets.
+     */
+    include?: string | string[];
+
+    /**
      * Options for the command.
      */
     options?: CommandLineOptionMap;
+
+    /**
+     * Option sets for the command.
+     * NOTE: These are not included by default. To include them you must specify an "include".
+     */
+    optionSets?: CommandLineOptionSets;
 
     /**
      * Indicates the commend should not be printed when printing help text.
@@ -126,6 +142,17 @@ export interface CommandLineCommand {
      * An optional default parameter group.
      */
     defaultGroup?: string;
+}
+
+export interface CommandLineOptionSets {
+    [key: string]: CommandLineOptionSet;
+}
+
+export interface CommandLineOptionSet {
+    setName?: string;
+    hidden?: boolean;
+    merge?: boolean;
+    options?: CommandLineOptionMap;
 }
 
 /**

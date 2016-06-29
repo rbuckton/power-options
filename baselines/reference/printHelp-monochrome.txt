@@ -1,15 +1,20 @@
-usage: test <command> [options]
+usage: test <command> [[--x] <string>] [--gab] [--gac] [[--rest] <string[]>] [options] [--]
+       test <command> [[--x] <string>] [--gab] [--gbc] [[--rest] <string[]>] [options] [--]
+       test <command> [[--x] <string>] [--gbc] [--gac] [[--rest] <string[]>] [options] [--]
 
 commands:
- z                 The 'z' command.
+ z                     The 'z' command.
 
 general options:
- -a                The -a option
-     --b <string>  The -b option
-     --c <number>  The -c option.
-                   On two lines.
-     --d <param[]> The -d option with a <param>.
-     --x <string>
-     --gab
-     --gbc
- -h, --help        Prints this message.
+ -a                    The -a option
+    --b <string>       The --b option
+    --c <number>       The --c option.
+                       On two lines.
+    --d <param[]>      The --d option with a <param>.
+    --x <string>
+    --gab
+    --gbc
+    --gac
+    --rest <string[]>
+    --
+ -h --help             Prints this message.

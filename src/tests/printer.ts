@@ -10,12 +10,15 @@ const settings: CommandLineSettings = {
     name: "test",
     options: {
         "a": { shortName: "a", longName: null, description: "The -a option" },
-        "b": { type: "string", description: "The -b option" },
-        "c": { type: "number", description: "The -c option.\nOn two lines." },
-        "d": { type: "string", multiple: true, param: "param", description: "The -d option with a <param>." },
+        "b": { type: "string", description: "The --b option" },
+        "c": { type: "number", description: "The --c option.\nOn two lines." },
+        "d": { type: "string", multiple: true, param: "param", description: "The --d option with a <param>." },
         "x": { type: "string", position: 0 },
-        "gab": { type: "boolean", group: ["a", "b"] },
-        "gbc": { type: "boolean", group: ["b", "c"] }
+        "gab": { type: "boolean", group: ["a", "b"], position: 1 },
+        "gbc": { type: "boolean", group: ["b", "c"], position: 2 },
+        "gac": { type: "boolean", group: ["a", "c"], position: 3 },
+        "rest": { rest: true },
+        "pass": { passthru: true }
     },
     commands: {
         "z": { summary: "The 'z' command." }

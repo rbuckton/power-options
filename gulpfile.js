@@ -52,6 +52,8 @@ gulp.task("test:pre-test", ["build"], preTest());
 gulp.task("test", ["test:pre-test"], test(tests));
 gulp.task("watch", watch([].concat(lib.src, es5.src, tests.src), ["test"]));
 gulp.task("default", ["test"]);
+gulp.task("accept-baselines:clean-reference", cb => del("baselines/reference"));
+gulp.task("accept-baselines", ["accept-baselines:clean-reference"], () => gulp.src("baselines/local/**/*").pipe(gulp.dest("baselines/reference")));
 
 function build(opts) {
     return function () {

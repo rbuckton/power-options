@@ -1,17 +1,48 @@
-import { CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, ParsedArgumentType, ReadonlyCollection, ReadonlySet } from "./types";
+import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType, ReadonlyCollection, ReadonlySet } from "./types";
 import { compareValues, isObjectLike } from "./utils";
 import { ParsedArgument } from "./parser";
 import { Query, from } from "iterable-query";
 
 const shortNamePattern = /^[a-z0-9?!]$/i;
 
+export class OptionSet {
+    public readonly key: string;
+    public readonly set: CommandLineOptionSet;
+    public readonly setName: string;
+    public readonly hidden: boolean;
+    public readonly merge: boolean;
+    public readonly visibility: "default" | "hidden";
+
+    constructor(key: string, set: CommandLineOptionSet) {
+        this.key = key;
+        this.set = set;
+        this.setName = set.setName || key;
+        this.hidden = set.hidden || false;
+        this.merge = set.merge || false;
+        this.visibility = set.hidden ? "hidden" : "default";
+    }
+
+    public static compare(x: OptionSet | undefined, y: OptionSet | undefined) {
+        if (x === y) return 0;
+        if (x === undefined) return -1;
+        if (y === undefined) return +1;
+        return compareValues(x.setName, y.setName);
+    }
+
+    public compare(other: OptionSet | undefined) {
+        return OptionSet.compare(this, other);
+    }
+}
+
 export class Option {
     public readonly key: string;
     public readonly command?: Command;
+    public readonly optionSet?: OptionSet;
     public readonly option: CommandLineOption;
     public readonly type: "boolean" | "number" | "string";
     public readonly longName?: string;
     public readonly shortName?: string;
+    public readonly parameterName: string;
     public readonly aliases: ReadonlyCollection<string>;
     public readonly position?: number;
     public readonly required: boolean;
@@ -28,6 +59,7 @@ export class Option {
     public readonly hasConverter: boolean;
     public readonly hasCustomError: boolean;
     public readonly hasDefaultValue: boolean;
+    public readonly visibility: "default" | "hidden";
 
     private readonly _ignoreCase: boolean;
     private readonly _sortKey: string;
@@ -41,7 +73,7 @@ export class Option {
     private readonly _error?: ((parameterName: string, error: CommandLineParseError) => CommandLineParseError) | CommandLineParseErrorDefinition | string;
     private readonly _defaultValue?: ((parsedArgs: any, group: string | undefined) => ParsedArgumentType) | ParsedArgumentType;
 
-    constructor(key: string, command: Command | undefined, commandLineOption: CommandLineOption) {
+    constructor(key: string, commandLineOption: CommandLineOption, command: Command | undefined, optionSet: OptionSet | undefined) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
         if (!isObjectLike(commandLineOption)) throw Errors.invalidCommandLineOption(key);
         const type = inferType(commandLineOption as CommandLineUnspecifiedOption);
@@ -49,6 +81,7 @@ export class Option {
         const { longName, shortName, alias, position, required, help, single, multiple, passthru, rest, group, hidden, param, description, validate, convert, error, defaultValue, map, in: _in, match, ignoreCase } = commandLineOption as CommandLineUnspecifiedOption;
         this.key = key;
         this.command = command;
+        this.optionSet = optionSet;
         this.option = commandLineOption;
         this.type = type;
         this.longName = longName !== null ? normalizeName(longName || key, /*caseInsensitive*/ false) : shortName ? undefined : normalizeName(key, /*caseInsensitive*/ false);
@@ -78,6 +111,9 @@ export class Option {
         this._defaultValue = defaultValue;
         this._match = typeof match === "string" ? new RegExp(match, ignoreCase ? "i" : undefined) : match;
         this._sortKey = "";
+        this.visibility = (this.hidden || (optionSet && optionSet.hidden) || (command && command.hidden)) ? "hidden" : "default";
+        this.parameterName = this.passthru ? "--" : this.longName ? `--${this.longName}` : `-${this.shortName}`;
+
         if (this.shortName) this._sortKey += this.shortName;
         if (this.shortName && this.longName) this._sortKey += " ";
         if (this.longName) this._sortKey += this.longName;
@@ -98,6 +134,16 @@ export class Option {
         if (x === undefined) return -1;
         if (y === undefined) return +1;
         return compareValues(x._sortKey, y._sortKey);
+    }
+
+    public static comparePositions(x: Option | undefined, y: Option | undefined) {
+        if (x === y) return 0;
+        if (x === undefined) return -1;
+        if (y === undefined) return +1;
+        if (x.position === y.position) return 0;
+        if (x.position === undefined) return +1;
+        if (y.position === undefined) return -1;
+        return compareValues(x.position, y.position);
     }
 
     public compare(other: Option | undefined) {
@@ -174,6 +220,26 @@ export class Option {
         }
         return this._defaultValue;
     }
+
+    public toUsageString() {
+        let usage = this.parameterName;
+        if (this.type !== "boolean" && !this.passthru) {
+            if (this.position !== undefined || this.rest) {
+                usage = `[${usage}]`;
+            }
+
+            let param = this.param || this.type;
+            if (this.multiple) {
+                param += "[]";
+            }
+
+            usage += ` <${param}>`;
+        }
+        if (!this.required) {
+            usage = `[${usage}]`;
+        }
+        return usage;
+    }
 }
 
 export abstract class Resolver {
@@ -186,19 +252,25 @@ export abstract class Resolver {
     private readonly _options: Option[] = [];
     private readonly _groupsSet = new Set<string>();
     private readonly _groups: string[] = [];
+    private readonly _optionSets = new Map<string, OptionSet>();
     private _passthru: Option | undefined;
     private _rest: Option | undefined;
     private _defaultGroup: string | undefined;
     private _parent: Resolver | undefined;
 
-    constructor(options: CommandLineOptionMap | undefined, defaultGroup: string | undefined, parent?: Resolver) {
-        this.groups = this._groups;
+    constructor(optionSets: CommandLineOptionSets | undefined, options: CommandLineOptionMap | undefined, defaultGroup: string | undefined, parent?: Resolver) {
         this._parent = parent;
         this._defaultGroup = defaultGroup;
+        this.groups = this._groups;
+
         if (options) {
-            for (const key of Object.keys(options)) {
-                const option = options[key];
-                this.addOption(key, option);
+            this._addOptions(options);
+        }
+
+        if (optionSets) {
+            for (const key of Object.keys(optionSets)) {
+                const optionSet = optionSets[key];
+                this._optionSets.set(key, new OptionSet(key, optionSet));
             }
         }
     }
@@ -289,8 +361,8 @@ export abstract class Resolver {
         return q;
     }
 
-    public addOption(key: string, commandLineOption: CommandLineOption) {
-        const option = new Option(key, this._getCommand(), commandLineOption);
+    protected addOption(key: string, commandLineOption: CommandLineOption, optionSet?: OptionSet) {
+        const option = new Option(key, commandLineOption, this._getCommand(), optionSet);
         this._addKey(key, option);
         if (option.passthru) this._addPassthru(option);
         if (option.rest) this._addRest(option);
@@ -301,6 +373,28 @@ export abstract class Resolver {
         this._addGroups(option);
         this._options.push(option);
         return option;
+    }
+
+    protected _addOptionSet(name: string) {
+        const optionSet = this._getOptionSet(name);
+        if (optionSet) {
+            this._addOptions(optionSet.set.options, optionSet);
+        }
+    }
+
+    private _addOptions(options: CommandLineOptionMap | undefined, optionSet?: OptionSet) {
+        if (options) {
+            for (const key of Object.keys(options)) {
+                const option = options[key];
+                this.addOption(key, option, optionSet);
+            }
+        }
+    }
+
+    private _getOptionSet(name: string): OptionSet | undefined {
+        return this._optionSets.has(name)
+            ? this._optionSets.get(name)
+            : this._parent && this._parent._getOptionSet(name);
     }
 
     protected abstract _getCommand(): Command | undefined;
@@ -397,12 +491,13 @@ export class Command extends Resolver {
     public readonly examples: ReadonlyCollection<string>;
     public readonly summary: string;
     public readonly description: string;
+    public readonly visibility: "default" | "hidden";
 
     constructor(parent: CommandResolver, key: string, commandLineCommand: CommandLineCommand) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
         if (!isObjectLike(commandLineCommand)) throw Errors.invalidCommand(key);
-        const { commandName, alias, options, hidden, usage, example, summary, description, defaultGroup } = commandLineCommand;
-        super(options, defaultGroup, parent);
+        const { commandName, alias, include, options, optionSets, hidden, usage, example, summary, description, defaultGroup } = commandLineCommand;
+        super(optionSets, options, defaultGroup, parent);
         this.key = key;
         this.command = commandLineCommand;
         this.commandName = normalizeName(commandName || key, /*caseInsensitive*/ false);
@@ -412,6 +507,12 @@ export class Command extends Resolver {
         this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
         this.summary = summary || "";
         this.description = description || "";
+        this.visibility = hidden ? "hidden" : "default";
+        if (include) {
+            for (const name of Array.isArray(include) ? include : [include]) {
+                this._addOptionSet(name);
+            }
+        }
     }
 
     public static compare(x: Command | undefined, y: Command | undefined) {
@@ -437,7 +538,7 @@ export class CommandResolver extends Resolver {
     private _hasHelp: boolean;
 
     constructor(settings: CommandLineSettings) {
-        super(settings.options, settings.defaultGroup);
+        super(settings.optionSets, settings.options, settings.defaultGroup);
         this._hasCommands = false;
 
         // Ensure a help option.
@@ -468,7 +569,7 @@ export class CommandResolver extends Resolver {
         return Array.from(this._commandMap.values());
     }
 
-    public addOption(key: string, commandLineOption: CommandLineOption) {
+    protected addOption(key: string, commandLineOption: CommandLineOption) {
         const option = super.addOption(key, commandLineOption);
         if (option.help) {
             this._hasHelp = true;
@@ -476,7 +577,7 @@ export class CommandResolver extends Resolver {
         return option;
     }
 
-    public addCommand(key: string, commandLineCommand: CommandLineCommand) {
+    protected addCommand(key: string, commandLineCommand: CommandLineCommand) {
         const command = new Command(this, key, commandLineCommand);
         if (command.commandName) this._addCommandName(command.commandName, command);
         this._hasCommands = true;

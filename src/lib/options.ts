@@ -84,23 +84,12 @@ export class CommandLine extends CommandResolver {
         const resolver = command || this;
         const width = tty.isatty(this.stdout) ? this.stdout.columns - 2 : 120;
         const writer = new HelpWriter(this, command, { width, color: this._colorStdout });
-
-        const commands = this.getCommands()
-            .filter(x => !x.hidden)
-            // .sort(Command.compare);
-
-        const generalOptions = this.getOwnOptions("*")
-            .filter(x => !x.hidden)
-            // .sort(Option.compare);
-
-        const commandOptions = commandName
-            ? resolver.getOwnOptions("*")
-                .filter(x => !x.hidden)
-                // .sort(Option.compare)
-            : [];
+        const commands = this.getCommands();
+        const generalOptions = this.getOwnOptions("*");
+        const commandOptions: Iterable<Option> = command ? command.getOwnOptions("*") : [];
 
         writer.addUsages(command ? command.usages : this.usages);
-        writer.addDefaultUsage(commands.length > 0, commandOptions.length > 0 || generalOptions.length > 0);
+        writer.addDefaultUsage();
         writer.addDescription(command ? command.description : this.description);
         if (!command) writer.addCommands(commands);
         writer.addOptions(commandOptions);
