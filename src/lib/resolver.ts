@@ -96,7 +96,7 @@ export class Option {
         this.required = required || false;
         this.help = help || false;
         this.single = single || false;
-        this.multiple = multiple || rest || false;
+        this.multiple = multiple || rest || passthru || false;
         this.passthru = passthru || false;
         this.rest = rest || false;
         this.groups = Array.isArray(group) ? group.slice() : group ? [group] : [];
