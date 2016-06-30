@@ -51,7 +51,8 @@ export class Option {
     public readonly required: boolean;
     public readonly help: boolean;
     public readonly single: boolean;
-    public readonly multiple: boolean;
+    public readonly multiple: boolean | "no-comma";
+    public readonly comma: boolean;
     public readonly passthru: boolean;
     public readonly rest: boolean;
     public readonly groups: ReadonlyCollection<string>;
