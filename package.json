@@ -1,6 +1,6 @@
 {
   "name": "power-options",
-  "version": "0.1.12",
+  "version": "0.1.13",
   "description": "CLI Option parser for NodeJS",
   "main": "out/lib/index.js",
   "typings": "out/lib/index.d.ts",
@@ -32,7 +32,7 @@
   },
   "dependencies": {
     "chalk": "^1.1.3",
-    "iterable-query": "^0.1.2"
+    "iterable-query": "^0.1.3"
   },
   "repository": {
     "type": "git",
