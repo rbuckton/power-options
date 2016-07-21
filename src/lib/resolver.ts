@@ -51,7 +51,7 @@ export class Option {
     public readonly required: boolean;
     public readonly help: boolean;
     public readonly single: boolean;
-    public readonly multiple: boolean | "comma-separated";
+    public readonly multiple: boolean | "no-comma" /*deprecated*/ | "comma-separated";
     public readonly comma: boolean;
     public readonly passthru: boolean;
     public readonly rest: boolean;

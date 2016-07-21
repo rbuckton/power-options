@@ -1,6 +1,6 @@
 {
   "name": "power-options",
-  "version": "0.1.10",
+  "version": "0.1.11",
   "description": "CLI Option parser for NodeJS",
   "main": "out/lib/index.js",
   "typings": "out/lib/index.d.ts",
