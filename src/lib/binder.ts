@@ -177,12 +177,7 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
             });
         }
         else {
-            boundArguments.push({
-                parsed,
-                option: restOption,
-                argument: parsed.argument,
-                error: undefined
-            });
+            boundArguments.push(bindArgument(parsed, restOption, /*args*/ undefined, usedPositions));
         }
     }
 
@@ -318,7 +313,7 @@ function convertNumber(option: Option, parsed: ParsedArgument, item: string): nu
 function bindStringOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | undefined {
     const argument = arg.argument || readNextArgumentValue(args);
     if (argument === undefined) return undefined;
-    if (argument.values !== undefined && option.multiple !== "no-comma") {
+    if (argument.values !== undefined && option.multiple === "comma-separated") {
         const values = convertStrings(option, arg, argument.values);
         switch (values.length) {
             case 0: return undefined;

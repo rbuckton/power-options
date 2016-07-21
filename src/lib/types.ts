@@ -244,7 +244,7 @@ export interface CommandLineOptionWithValueBase<TValue, TDefault> extends Comman
      * Indicates whether the option can be specified more than once. The results are provided as
      * an array.
      */
-    multiple?: boolean | "no-comma";
+    multiple?: boolean | "comma-separated";
 
     /**
      * Maps an argument to a specific value.
