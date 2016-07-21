@@ -3,7 +3,7 @@ import { PassThrough, Writable } from "stream";
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandLine, CommandLineSettings } from "../lib/index";
+import { CommandLine, CommandLineSettings } from "../../out/lib/index";
 import { baseline } from "./baseline";
 
 const settings: CommandLineSettings = {

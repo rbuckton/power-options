@@ -44,7 +44,7 @@ var tests = {
 var useCoverage = false;
 
 gulp.task("build:lib", build(lib));
-gulp.task("build:tests", build(tests));
+gulp.task("build:tests", ["build:lib"], build(tests));
 gulp.task("build", ["build:lib", "build:tests"]);
 gulp.task("clean", cb => del("out", cb));
 gulp.task("cover", setCoverage());

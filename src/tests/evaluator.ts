@@ -1,12 +1,12 @@
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandResolver } from "../lib/resolver";
-import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/parser";
-import { Option } from "../lib/resolver";
-import { evaluate } from "../lib/evaluator";
-import { BoundArgument, BoundArgumentValue, BoundCommand } from "../lib/binder";
-import { ParsedCommandLine } from "../lib/types";
+import { CommandResolver } from "../../out/lib/resolver";
+import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../../out/lib/parser";
+import { Option } from "../../out/lib/resolver";
+import { evaluate } from "../../out/lib/evaluator";
+import { BoundArgument, BoundArgumentValue, BoundCommand } from "../../out/lib/binder";
+import { ParsedCommandLine } from "../../out/lib/types";
 
 const resolver = new CommandResolver({
     options: {

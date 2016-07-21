@@ -2,6 +2,7 @@ import { CommandLineOption, CommandLineCommand, CommandLineParseError, CommandLi
 import { CommandResolver, Command, Resolver, Option } from "./resolver";
 import { getParameterName, ParsedArgument } from "./parser";
 import { toCommandLineParseError } from "./utils";
+import { Set } from "iterable-query/es5";
 
 const booleanPattern = /^(?:(-?1|t(rue)?|y(es)?)|(0|f(alse)?|n(o)?))$/i;
 

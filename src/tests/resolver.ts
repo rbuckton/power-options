@@ -1,5 +1,5 @@
 import { assert, expect } from "chai";
-import { CommandResolver } from "../lib/resolver";
+import { CommandResolver } from "../../out/lib/resolver";
 
 describe("OptionResolver", () => {
     it("default", () => {

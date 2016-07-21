@@ -1,11 +1,12 @@
 import * as path from "path";
 import * as tty from "tty";
 import * as chalk from "chalk";
-import { Query } from "iterable-query";
+import { Query, Queryable, IterableIterator } from "iterable-query/es5";
 import { EOL } from "os";
 import { Resolver, Command, Option, OptionSet } from "./resolver";
 import { CommandLine } from "./options";
 import { getParameterName } from "./parser";
+import { Set } from "iterable-query/es5";
 
 declare module "chalk" {
     interface ChalkStyleMap { [key: string]: ChalkStyleElement; }
@@ -106,10 +107,10 @@ export class HelpWriter {
         }, styles);
     }
 
-    public addUsages(usages: Iterable<string>) {
-        for (const usage of usages) {
+    public addUsages(usages: Queryable<string>) {
+        Query.from(usages).forEach(usage => {
             this.addUsage(usage);
-        }
+        });
     }
 
     public addUsage(usage: string) {
@@ -123,8 +124,8 @@ export class HelpWriter {
         if (this.state !== HelpWriterState.Usage) {
             const hasCommands = this.command !== undefined || (this.commandLine.hasCommands && Query.from(this.commandLine.getCommands()).where(command => this.isVisible(command)).some());
             const printedUsages = new Set<string>();
-            const groups: Iterable<string | undefined> = this.resolver.groups.length ? this.resolver.groups : [undefined];
-            for (const group of groups) {
+            const groups: Queryable<string | undefined> = this.resolver.groups.length ? this.resolver.groups : [undefined];
+            Query.from(groups).forEach(group => {
                 const availableOptions = Query
                     .from(this.resolver.getOptions(group))
                     .where(option => this.isVisible(option))
@@ -183,14 +184,14 @@ export class HelpWriter {
                     this.addRawText(this.color(prefix, "header") + this.color(usageText, "usage"));
                     printedUsages.add(usageText);
                 }
-            }
+            });
         }
     }
 
-    public addExamples(examples: Iterable<string>) {
-        for (const example of examples) {
+    public addExamples(examples: Queryable<string>) {
+        Query.from(examples).forEach(example => {
             this.addExample(example);
-        }
+        });
     }
 
     public addExample(example: string) {
@@ -213,10 +214,10 @@ export class HelpWriter {
         }
     }
 
-    public addCommands(commands: Iterable<Command>) {
-        for (const command of commands) {
+    public addCommands(commands: Queryable<Command>) {
+        Query.from(commands).forEach(command => {
             this.addCommand(command);
-        }
+        });
     }
 
     public addCommand(command: Command) {
@@ -230,18 +231,18 @@ export class HelpWriter {
         }
     }
 
-    public addOptions(options: Iterable<Option>) {
+    public addOptions(options: Queryable<Option>) {
         const optionsBySet = Query
             .from(options)
             .where(option => this.isVisible(option))
             .groupBy(option => option.optionSet && !option.optionSet.merge ? option.optionSet : undefined)
             .orderBy(group => group.key ? 1 : 0);
 
-        for (const group of optionsBySet) {
-            for (const option of group) {
+        optionsBySet.forEach(group => {
+            group.forEach(option => {
                 this.addOption(option);
-            }
-        }
+            });
+        });
     }
 
     public addOption(option: Option) {
@@ -635,7 +636,7 @@ interface TextRange {
 function wordWrap(text: string, width: number) {
     const lines: string[] = [];
     let line: string = "";
-    for (const word of wordScan(text)) {
+    Query.from(wordScan(text)).forEach(word => {
         if (word.newLine) {
             lines.push(line);
             line = "";
@@ -651,7 +652,7 @@ function wordWrap(text: string, width: number) {
                 line += text.substring(word.pos, word.start) + fragment;
             }
         }
-    }
+    });
 
     if (line) {
         lines.push(line);
@@ -660,42 +661,53 @@ function wordWrap(text: string, width: number) {
     return lines;
 }
 
-function* wordScan(text: string): Iterable<TextRange> {
+function wordScan(text: string): IterableIterator<TextRange> {
     let end = 0;
     let pos = 0;
-    while (end < text.length) {
-        const ch = text.charAt(end);
-        if (ch === '\r') {
-            const start = end;
-            end++;
-            if (end < text.length && text.charAt(end) === '\n') {
-                end++;
-            }
-
-            yield { pos, start, end, newLine: true };
+    return {
+        __iterator__() {
+            return this;
+        },
+        next() {
             pos = end;
-        }
-        else if (ch === '\n') {
-            const start = end;
-            end++;
-            yield { pos, start, end, newLine: true  };
-            pos = end;
-        }
-        else if (!whitespacePattern.test(ch)) {
-            const start = end;
             while (end < text.length) {
                 const ch = text.charAt(end);
-                if (whitespacePattern.test(ch)) {
-                    break;
+                if (ch === '\r') {
+                    const start = end;
+                    end++;
+                    if (end < text.length && text.charAt(end) === '\n') {
+                        end++;
+                    }
+
+                    return { value: { pos, start, end, newLine: true }, done: false };
                 }
-                end++;
+                else if (ch === '\n') {
+                    const start = end;
+                    end++;
+                    return { value: { pos, start, end, newLine: true  }, done: false };
+                }
+                else if (!whitespacePattern.test(ch)) {
+                    const start = end;
+                    while (end < text.length) {
+                        const ch = text.charAt(end);
+                        if (whitespacePattern.test(ch)) {
+                            break;
+                        }
+                        end++;
+                    }
+
+                    return { value: { pos, start, end }, done: false };
+                }
+                else {
+                    end++;
+                }
             }
 
-            yield { pos, start, end };
-            pos = end;
+            return { done: true }
+        },
+        return() {
+            end = text.length;
+            return { done: true };
         }
-        else {
-            end++;
-        }
-    }
+    };
 }

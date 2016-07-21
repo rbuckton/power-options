@@ -1,7 +1,7 @@
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { parse, ParsedParameter, ParsedArgument, ParsedArgumentValue } from "../lib/parser";
+import { parse, ParsedParameter, ParsedArgument, ParsedArgumentValue } from "../../out/lib/parser";
 
 const host = {
     readFileSync(file: string) {

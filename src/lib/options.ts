@@ -10,7 +10,8 @@ import { bind, BoundArgument } from "./binder";
 import { evaluate } from "./evaluator";
 import { getPackageDetails } from "./utils";
 import { HelpWriter } from "./printer";
-import { CommandLineSettings, ParsedCommandLine, ReadonlyCollection } from "./types";
+import { CommandLineSettings, ParsedCommandLine } from "./types";
+import { Queryable } from "iterable-query/es5";
 
 declare module "tty" {
     function isatty(s: NodeJS.WritableStream): s is WriteStream;
@@ -26,8 +27,8 @@ export class CommandLine extends CommandResolver {
     public readonly name: string;
     public readonly description: string;
     public readonly version: string;
-    public readonly usages: ReadonlyCollection<string>;
-    public readonly examples: ReadonlyCollection<string>;
+    public readonly usages: ReadonlyArray<string>;
+    public readonly examples: ReadonlyArray<string>;
     public readonly stdout: NodeJS.WritableStream;
     public readonly stderr: NodeJS.WritableStream;
     public readonly auto: boolean | "print";
@@ -86,7 +87,7 @@ export class CommandLine extends CommandResolver {
         const writer = new HelpWriter(this, command, { width, color: this._colorStdout });
         const commands = this.getCommands();
         const generalOptions = this.getOwnOptions("*");
-        const commandOptions: Iterable<Option> = command ? command.getOwnOptions("*") : [];
+        const commandOptions: Queryable<Option> = command ? command.getOwnOptions("*") : [];
 
         writer.addUsages(command ? command.usages : this.usages);
         writer.addDefaultUsage();

@@ -1,7 +1,7 @@
-import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType, ReadonlyCollection, ReadonlySet } from "./types";
+import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType } from "./types";
 import { compareValues, isObjectLike } from "./utils";
 import { ParsedArgument } from "./parser";
-import { Query, from } from "iterable-query";
+import { Query, Queryable, Map, Set } from "iterable-query/es5";
 
 const shortNamePattern = /^[a-z0-9?!]$/i;
 
@@ -12,7 +12,7 @@ export class OptionSet {
     public readonly hidden: boolean;
     public readonly merge: boolean;
     public readonly visibility: "default" | "hidden";
-    public readonly include: ReadonlyCollection<string>;
+    public readonly include: ReadonlyArray<string>;
 
     constructor(key: string, set: CommandLineOptionSet) {
         const { setName = key, hidden = false, merge = false, include } = set;
@@ -46,7 +46,7 @@ export class Option {
     public readonly longName?: string;
     public readonly shortName?: string;
     public readonly parameterName: string;
-    public readonly aliases: ReadonlyCollection<string>;
+    public readonly aliases: ReadonlyArray<string>;
     public readonly position?: number;
     public readonly required: boolean;
     public readonly help: boolean;
@@ -55,7 +55,7 @@ export class Option {
     public readonly comma: boolean;
     public readonly passthru: boolean;
     public readonly rest: boolean;
-    public readonly groups: ReadonlyCollection<string>;
+    public readonly groups: ReadonlyArray<string>;
     public readonly hidden: boolean;
     public readonly param?: string;
     public readonly description?: string;
@@ -249,7 +249,7 @@ export class Option {
 }
 
 export abstract class Resolver {
-    public readonly groups: ReadonlyCollection<string>;
+    public readonly groups: ReadonlyArray<string>;
 
     private readonly _keyMap = new Map<string | symbol, Option>();
     private readonly _shortNameMap = new Map<string, Option>();
@@ -306,7 +306,7 @@ export abstract class Resolver {
             || (this._parent ? this._parent.fromLongName(longName) : undefined);
     }
 
-    public fromPosition(position: number): ReadonlyCollection<Option> | undefined {
+    public fromPosition(position: number): ReadonlyArray<Option> | undefined {
         return this._positionMap.get(position)
             || (this._parent ? this._parent.fromPosition(position) : undefined);
     }
@@ -333,28 +333,28 @@ export abstract class Resolver {
         return includePrefix ? "--" + option.longName : option.longName;
     }
 
-    public getOwnOptions(group?: string): ReadonlyCollection<Option> {
+    public getOwnOptions(group?: string): ReadonlyArray<Option> {
         return this._getOptions(group, /*own*/ true).toArray();
     }
 
-    public getOptions(group?: string): ReadonlyCollection<Option> {
+    public getOptions(group?: string): ReadonlyArray<Option> {
         return this._getOptions(group, /*own*/ false).toArray();
     }
 
-    public getDefaultOptions(group?: string): ReadonlyCollection<Option> {
+    public getDefaultOptions(group?: string): ReadonlyArray<Option> {
         return this._getOptions(group, /*own*/ false)
             .where(option => option.hasDefaultValue)
             .toArray();
     }
 
-    public getRequiredOptions(group?: string): ReadonlyCollection<Option> {
+    public getRequiredOptions(group?: string): ReadonlyArray<Option> {
         return this._getOptions(group, /*own*/ false)
             .where(option => option.required)
             .toArray();
     }
 
     protected _getOptions(group: string | undefined, own: boolean) {
-        let q = from(this._options);
+        let q = Query.from(this._options);
         if (group === undefined) {
             q = q.where(option => option.groups.length === 0);
         }
@@ -381,14 +381,14 @@ export abstract class Resolver {
         return option;
     }
 
-    protected _addOptionSets(include: Iterable<string> | undefined) {
+    protected _addOptionSets(include: Queryable<string> | undefined) {
         if (include) {
             this._addOptionSetsWorker(include, new Set<string>());
         }
     }
 
-    private _addOptionSetsWorker(include: Iterable<string>, includedSets: Set<string>) {
-        for (const name of include) {
+    private _addOptionSetsWorker(include: Queryable<string>, includedSets: Set<string>) {
+        Query.from(include).forEach(name => {
             if (!includedSets.has(name)) {
                 includedSets.add(name);
                 const optionSet = this._getOptionSet(name);
@@ -397,7 +397,7 @@ export abstract class Resolver {
                     this._addOptionSetsWorker(optionSet.include, includedSets);
                 }
             }
-        }
+        });
     }
 
     private _addOptions(options: CommandLineOptionMap | undefined, optionSet?: OptionSet) {
@@ -477,7 +477,7 @@ export abstract class Resolver {
         else {
             for (const existingOption of options) {
                 if (existingOption.groups.length > 0) {
-                    const intersection = from(existingOption.groups).intersect(option.groups).toArray();
+                    const intersection = Query.from(existingOption.groups).intersect(option.groups).toArray();
                     if (intersection) throw Errors.duplicatePositionWithGroups(option.key, existingOption.key, intersection);
                 }
                 else {
@@ -503,10 +503,10 @@ export class Command extends Resolver {
     public readonly key: string;
     public readonly command: CommandLineCommand;
     public readonly commandName: string;
-    public readonly aliases: ReadonlyCollection<string>;
+    public readonly aliases: ReadonlyArray<string>;
     public readonly hidden: boolean;
-    public readonly usages: ReadonlyCollection<string>;
-    public readonly examples: ReadonlyCollection<string>;
+    public readonly usages: ReadonlyArray<string>;
+    public readonly examples: ReadonlyArray<string>;
     public readonly summary: string;
     public readonly description: string;
     public readonly visibility: "default" | "hidden";
@@ -581,8 +581,8 @@ export class CommandResolver extends Resolver {
         return this._commandMap.get(normalizeName(commandName, /*caseInsensitive*/ true));
     }
 
-    public getCommands(): ReadonlyCollection<Command> {
-        return Array.from(this._commandMap.values());
+    public getCommands(): ReadonlyArray<Command> {
+        return Query.from(this._commandMap.values()).toArray();
     }
 
     protected addOption(key: string, commandLineOption: CommandLineOption) {
