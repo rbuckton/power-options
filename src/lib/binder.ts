@@ -265,7 +265,7 @@ function convertBoolean(option: Option, parsed: ParsedArgument, item: string): b
 function bindNumberOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | undefined {
     const argument = arg.argument || readNextArgumentValue(args);
     if (argument) {
-        if (argument.values !== undefined && option.multiple === "comma-separated") {
+        if (argument.values !== undefined && (option.multiple === "comma-separated" || (arg.parameter && arg.parameter.passthru))) {
             const values = convertNumbers(option, arg, argument.values);
             switch (values.length) {
                 case 0: return undefined;
@@ -314,7 +314,7 @@ function convertNumber(option: Option, parsed: ParsedArgument, item: string): nu
 function bindStringOption(option: Option, arg: ParsedArgument, args: ParsedArgument[] | undefined): BoundArgumentValue | undefined {
     const argument = arg.argument || readNextArgumentValue(args);
     if (argument === undefined) return undefined;
-    if (argument.values !== undefined && option.multiple === "comma-separated") {
+    if (argument.values !== undefined && (option.multiple === "comma-separated" || (arg.parameter && arg.parameter.passthru))) {
         const values = convertStrings(option, arg, argument.values);
         switch (values.length) {
             case 0: return undefined;
