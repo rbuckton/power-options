@@ -1,6 +1,6 @@
 {
   "name": "power-options",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "CLI Option parser for NodeJS",
   "main": "out/lib/index.js",
   "typings": "out/lib/index.d.ts",
@@ -28,7 +28,7 @@
     "merge2": "^1.0.1",
     "mocha": "^2.4.5",
     "source-map-support": "^0.4.0",
-    "typescript": "^1.9.0-dev.20160330"
+    "typescript": "^2.1.0-dev.20161006"
   },
   "dependencies": {
     "chalk": "^1.1.3",

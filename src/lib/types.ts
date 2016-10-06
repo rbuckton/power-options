@@ -330,17 +330,32 @@ export interface CommandLineParseErrorDefinition {
     status?: number;
 }
 
-export class CommandLineParseError extends Error {
-    public readonly name = "CommandLineParseError";
+const construct: (target: new (...args: any[]) => any, argumentsList: any[], newTarget?: Function) => any =
+    typeof Reflect !== "undefined" && typeof Reflect.construct === "function"
+        ? (target, argumentsList, newTarget) => Reflect.construct(target, argumentsList, newTarget)
+        : (target, argumentsList, newTarget) => newTarget
+            ? Object.setPrototypeOf(new target(...argumentsList), newTarget.prototype)
+            : new target(...argumentsList);
+
+export class CommandLineParseError implements Error {
+    public name: string;
+    public message: string;
+    public stack?: string;
     public help: boolean;
-    public status: number | undefined;
+    public status: number;
 
     constructor(message?: string, help: boolean = false, status: number = -1) {
-        super(message);
-        this.help = help || false;
-        this.status = status;
+        const newTarget = this.constructor;
+        const self = <CommandLineParseError>construct(Error, [message], newTarget);
+        self.help = help;
+        self.status = status;
+        return self;
     }
 }
+
+Object.setPrototypeOf(CommandLineParseError, Error);
+Object.setPrototypeOf(CommandLineParseError.prototype, Error.prototype);
+Object.defineProperty(CommandLineParseError.prototype, "name", { writable: true, configurable: true, value: CommandLineParseError.name });
 
 export type ParsedArgumentType = string | number | boolean | string[] | number[];
 
