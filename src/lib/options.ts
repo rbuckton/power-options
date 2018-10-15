@@ -1,28 +1,22 @@
-import { EOL } from "os";
-import * as path from "path";
 import * as tty from "tty";
 import * as net from "net";
 import * as chalk from "chalk";
+import { EOL } from "os";
 import { PassThrough } from "stream";
-import { CommandResolver, Resolver, Option, Command } from "./resolver";
+import { CommandLineResolver, Option, Resolver, Command } from "./resolver";
 import { parse } from "./parser";
-import { bind, BoundArgument } from "./binder";
+import { bind } from "./binder";
 import { evaluate } from "./evaluator";
 import { getPackageDetails } from "./utils";
 import { HelpWriter } from "./printer";
 import { CommandLineSettings, ParsedCommandLine } from "./types";
 import { Queryable } from "iterable-query/es5";
 
-declare module "tty" {
-    function isatty(s: NodeJS.WritableStream): s is WriteStream;
-}
-
-
 export function parseCommandLine<T>(args: string[], settings: CommandLineSettings): ParsedCommandLine<T> {
     return new CommandLine(settings).parse<T>(args);
 }
 
-export class CommandLine extends CommandResolver {
+export class CommandLine extends CommandLineResolver {
     public readonly settings: CommandLineSettings;
     public readonly name: string;
     public readonly description: string;
@@ -33,13 +27,15 @@ export class CommandLine extends CommandResolver {
     public readonly stderr: NodeJS.WritableStream;
     public readonly auto: boolean | "print";
     public readonly color: boolean | "force";
+    public readonly width: number | undefined;
+    public readonly maxWidth: number | undefined;
 
     private _colorStdout: boolean;
     private _colorStderr: boolean;
 
     constructor(settings: CommandLineSettings) {
         super(settings);
-        const { auto, usage, example, color, stdout, stderr } = settings;
+        const { auto, usage, example, color, width, maxWidth, stdout, stderr } = settings;
         const { name, description, version } = getPackageDetails(settings);
         this.settings = settings;
         this.name = name || "";
@@ -47,12 +43,14 @@ export class CommandLine extends CommandResolver {
         this.version = version || "";
         this.auto = auto || false;
         this.color = color || false;
+        this.width = width;
+        this.maxWidth = maxWidth;
         this.usages = Array.isArray(usage) ? usage.slice() : usage ? [usage] : [];
         this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
         this.stdout = pickStream(stdout, process.stdout);
         this.stderr = pickStream(stderr, process.stderr);
-        this._colorStdout = color === "force" ? true : this.color && tty.isatty(this.stdout);
-        this._colorStderr = color === "force" ? true : this.color && tty.isatty(this.stderr);
+        this._colorStdout = color === "force" ? true : this.color && this.stdout instanceof tty.WriteStream;
+        this._colorStderr = color === "force" ? true : this.color && this.stderr instanceof tty.WriteStream;
     }
 
     public parse<T>(args: string[]): ParsedCommandLine<T> {
@@ -60,10 +58,8 @@ export class CommandLine extends CommandResolver {
         const { boundCommand, boundArguments, groups, resolver } = bind(parsedArguments, this);
         const result = evaluate<T>(boundCommand, boundArguments, groups, resolver);
         if (this.auto && (result.error || result.help)) {
-            const out = (this.stdout || process.stdout) as tty.WriteStream;
-            const err = (this.stderr || process.stderr) as tty.WriteStream;
             if (result.error) this.printError(result.error);
-            if (result.help) this.printHelp(result.commandName);
+            if (result.help) this.printHelp(result.commandPath);
             if (this.auto === true) process.exit(result.status);
         }
         return result;
@@ -78,22 +74,43 @@ export class CommandLine extends CommandResolver {
         this.stderr.write(message, "utf8");
     }
 
-    public printHelp(commandName?: string) {
-        const command = commandName ? this.fromCommandName(commandName) : undefined;
-        if (commandName && !command) throw new Error(`Command '${commandName}' not found.`);
+    public printHelp(commandName?: string): void;
+    public printHelp(commandName: string, ...subcommandNames: string[]): void;
+    public printHelp(commandPath?: ReadonlyArray<string>): void;
+    public printHelp(commandPath?: string | ReadonlyArray<string>, ...subcommandNames: string[]) {
+        let resolver: Resolver = this;
+        let command: Command | undefined;
+        let commandQueue: Command[] | undefined;
+        if (commandPath) {
+            commandQueue = [];
+            commandPath = typeof commandPath === "string" ? [commandPath, ...subcommandNames] : commandPath;
+            for (const commandName of commandPath) {
+                command = resolver.fromCommandName(commandName);
+                if (!command) throw new Error(`Command '${commandName}' not found.`);
+                commandQueue.push(command);
+                resolver = command;
+            }
+        }
 
-        const resolver = command || this;
-        const width = tty.isatty(this.stdout) ? this.stdout.columns - 2 : 120;
-        const writer = new HelpWriter(this, command, { width, color: this._colorStdout });
-        const commands = this.getCommands();
+        const width = this.width !== undefined ? this.width : 
+            this.stdout instanceof tty.WriteStream ? this.stdout.columns - 2 : 
+            undefined;
+        const maxWidth = this.maxWidth !== undefined ? this.maxWidth :
+            this.width !== undefined ? this.width :
+            undefined;
+        const writer = new HelpWriter(this, command, { width, maxWidth, color: this._colorStdout });
+        const commands = resolver.getCommands();
         const generalOptions = this.getOwnOptions("*");
-        const commandOptions: Queryable<Option> = command ? command.getOwnOptions("*") : [];
-
         writer.addUsages(command ? command.usages : this.usages);
         writer.addDefaultUsage();
         writer.addDescription(command ? command.description : this.description);
-        if (!command) writer.addCommands(commands);
-        writer.addOptions(commandOptions);
+        writer.addCommands(commands);
+        if (commandQueue) {
+            let command: Command | undefined;
+            while (command = commandQueue.shift()) {
+                writer.addOptions(command.getOwnOptions("*"));
+            }
+        }
         writer.addOptions(generalOptions);
         writer.addExamples(command ? command.examples : this.examples);
         writer.write(this.stdout);

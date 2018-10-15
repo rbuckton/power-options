@@ -1,16 +1,15 @@
 import * as path from "path";
 import * as tty from "tty";
 import * as chalk from "chalk";
-import { Query, Queryable, IterableIterator } from "iterable-query/es5";
+import { Query, Queryable } from "iterable-query";
 import { EOL } from "os";
 import { Resolver, Command, Option, OptionSet } from "./resolver";
 import { CommandLine } from "./options";
 import { getParameterName } from "./parser";
-import { Set } from "iterable-query/es5";
 
 declare module "chalk" {
-    interface ChalkStyleMap { [key: string]: ChalkStyleElement; }
-    interface ChalkStyle { [key: string]: ChalkChain; }
+    interface ChalkStyleMap { [key: string]: import("chalk").ChalkStyleElement; }
+    interface ChalkStyle { [key: string]: import("chalk").ChalkChain | boolean; }
 }
 
 const whitespacePattern = /^\s$/;
@@ -18,6 +17,7 @@ const whitespacePattern = /^\s$/;
 export interface HelpWriterOptions {
     padding?: number;
     width?: number;
+    maxWidth?: number;
     color?: boolean;
     styles?: Styles;
     level?: "default" | "hidden";
@@ -82,14 +82,14 @@ export class HelpWriter {
     private level: "default" | "hidden";
 
     constructor(commandLine: CommandLine, command: Command | undefined, options: HelpWriterOptions = {}) {
-        const { padding = 1, width = 120, color = false, styles, level } = options || {} as HelpWriterOptions;
+        const { padding = 1, width = 120, maxWidth = 190, color = false, styles, level } = options || {} as HelpWriterOptions;
         this.commandLine = commandLine;
         this.command = command;
         this.resolver = command || commandLine;
         this.level = level || "default";
         this.hasWrittenCommand = command ? true : false;
         this.padding = padding;
-        this.width = Math.min(160, width);
+        this.width = Math.min(width, Math.max(maxWidth, 160));
         this.useColors = color;
         this.styles = Object.assign({
             text: "inherit",
@@ -147,7 +147,7 @@ export class HelpWriter {
 
                 const usage: string[] = [this.color(this.commandLine.name, "executable")];
                 if (hasCommands) {
-                    usage.push(this.format("$commandName"));
+                    usage.push(this.format("$commandPath"));
                 }
 
                 let numOptions = 0;
@@ -239,9 +239,11 @@ export class HelpWriter {
             .orderBy(group => group.key ? 1 : 0);
 
         optionsBySet.forEach(group => {
-            group.forEach(option => {
-                this.addOption(option);
-            });
+            Query
+                .from(group)
+                .forEach(option => {
+                    this.addOption(option);
+                });
         });
     }
 
@@ -486,6 +488,19 @@ export class HelpWriter {
                         }
                         break;
 
+                    case "commandPath":
+                        if (command) {
+                            let current: Command | undefined = command;
+                            let result = "";
+                            while (current) {
+                                if (result) result += " ";
+                                result += this.color(current.commandName, "command");
+                                current = current.parentCommand;
+                            }
+                            return result;
+                        }
+                        // falls through
+
                     case "command":
                     case "commandName":
                         if (command) {
@@ -665,7 +680,7 @@ function wordScan(text: string): IterableIterator<TextRange> {
     let end = 0;
     let pos = 0;
     return {
-        __iterator__() {
+        [Symbol.iterator]() {
             return this;
         },
         next() {
@@ -703,11 +718,11 @@ function wordScan(text: string): IterableIterator<TextRange> {
                 }
             }
 
-            return { done: true }
+            return { done: true, value: undefined! };
         },
         return() {
             end = text.length;
-            return { done: true };
+            return { done: true, value: undefined! };
         }
     };
 }

@@ -1,9 +1,6 @@
-import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType } from "./types";
+import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType, CommandLineCommandMap } from "./types";
 import { compareValues, isObjectLike } from "./utils";
-import { ParsedArgument } from "./parser";
-import { Query, Queryable, Map, Set } from "iterable-query/es5";
-
-const shortNamePattern = /^[a-z0-9?!]$/i;
+import { Query, Queryable } from "iterable-query";
 
 export class OptionSet {
     public readonly key: string;
@@ -52,7 +49,6 @@ export class Option {
     public readonly help: boolean;
     public readonly single: boolean;
     public readonly multiple: boolean | "no-comma" /*deprecated*/ | "comma-separated";
-    public readonly comma: boolean;
     public readonly passthru: boolean;
     public readonly rest: boolean;
     public readonly groups: ReadonlyArray<string>;
@@ -76,7 +72,7 @@ export class Option {
     private readonly _validate?: ((value: boolean | number | string, parameterName: string, parsedArgs: any) => CommandLineParseError | void);
     private readonly _convert?: ((value: string, parameterName: string) => string | number | boolean);
     private readonly _error?: ((parameterName: string, error: CommandLineParseError) => CommandLineParseError) | CommandLineParseErrorDefinition | string;
-    private readonly _defaultValue?: ((parsedArgs: any, group: string | undefined) => ParsedArgumentType) | ParsedArgumentType;
+    private readonly _defaultValue?: ((parsedArgs: any, group: string | undefined) => ParsedArgumentType | undefined) | ParsedArgumentType;
 
     constructor(key: string, commandLineOption: CommandLineOption, command: Command | undefined, optionSet: OptionSet | undefined) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
@@ -110,7 +106,7 @@ export class Option {
         this._ignoreCase = ignoreCase || false;
         this._map = map;
         this._in = _in ? (_in as (string | number)[]).slice() : undefined;
-        this._validate = validate;
+        this._validate = validate as (value: boolean | number | string, parameterName: string, parsedArgs: any) => CommandLineParseError | void;
         this._convert = convert;
         this._error = error;
         this._defaultValue = defaultValue;
@@ -150,6 +146,14 @@ export class Option {
         if (x.position === undefined) return +1;
         if (y.position === undefined) return -1;
         return compareValues(x.position, y.position);
+    }
+
+    public isRest(): this is RestOption {
+        return this.rest;
+    }
+
+    public isPassthru(): this is PassthruOption {
+        return this.passthru;
     }
 
     public compare(other: Option | undefined) {
@@ -248,6 +252,15 @@ export class Option {
     }
 }
 
+export type PassthruOption = Option & {
+    passthru: true;
+};
+
+export type RestOption = Option & {
+    rest: true;
+    position: number;
+};
+
 export abstract class Resolver {
     public readonly groups: ReadonlyArray<string>;
 
@@ -259,12 +272,15 @@ export abstract class Resolver {
     private readonly _groupsSet = new Set<string>();
     private readonly _groups: string[] = [];
     private readonly _optionSets = new Map<string, OptionSet>();
-    private _passthru: Option | undefined;
-    private _rest: Option | undefined;
+    private readonly _commandMap = new Map<string, Command>();
+    private _hasCommands: boolean;
+    private _passthru: PassthruOption | undefined;
+    private _rest: RestOption | undefined;
     private _defaultGroup: string | undefined;
     private _parent: Resolver | undefined;
 
-    constructor(optionSets: CommandLineOptionSets | undefined, options: CommandLineOptionMap | undefined, defaultGroup: string | undefined, parent?: Resolver) {
+    constructor(optionSets: CommandLineOptionSets | undefined, options: CommandLineOptionMap | undefined, defaultGroup: string | undefined, commands: CommandLineCommandMap | undefined, parent?: Resolver) {
+        this._hasCommands = false;
         this._parent = parent;
         this._defaultGroup = defaultGroup;
         this.groups = this._groups;
@@ -279,14 +295,23 @@ export abstract class Resolver {
                 this._optionSets.set(key, new OptionSet(key, optionSet));
             }
         }
+
+        if (commands) {
+            for (const key of Object.keys(commands)) {
+                const command = commands[key];
+                if (command) {
+                    this._addCommand(key, commands[key]);
+                }
+            }
+        }
     }
 
-    public getPassthru(): Option | undefined {
+    public getPassthru(): PassthruOption | undefined {
         return this._passthru
             || (this._parent ? this._parent.getPassthru() : undefined);
     }
 
-    public getRest(): Option | undefined {
+    public getRest(): RestOption | undefined {
         return this._rest
             || (this._parent ? this._parent.getRest() : undefined);
     }
@@ -370,8 +395,8 @@ export abstract class Resolver {
     protected addOption(key: string, commandLineOption: CommandLineOption, optionSet?: OptionSet) {
         const option = new Option(key, commandLineOption, this._getCommand(), optionSet);
         this._addKey(key, option);
-        if (option.passthru) this._addPassthru(option);
-        if (option.rest) this._addRest(option);
+        if (option.isPassthru()) this._addPassthru(option);
+        if (option.isRest()) this._addRest(option);
         if (option.longName) this._addLongName(option.longName, option, "long name");
         if (option.shortName) this._addShortName(option.shortName, option, "short name");
         if (option.position !== undefined) this._addPosition(option.position, option);
@@ -417,12 +442,12 @@ export abstract class Resolver {
 
     protected abstract _getCommand(): Command | undefined;
 
-    private _addPassthru(option: Option) {
+    private _addPassthru(option: PassthruOption) {
         if (this._passthru) throw Errors.duplicatePassthru(option.key, this._passthru.key);
         this._passthru = option;
     }
 
-    private _addRest(option: Option) {
+    private _addRest(option: RestOption) {
         if (this._rest) throw Errors.duplicateRest(option.key, this._rest.key);
         this._rest = option;
     }
@@ -497,6 +522,43 @@ export abstract class Resolver {
             }
         }
     }
+
+    public get hasCommands() {
+        return this._hasCommands;
+    }
+
+    public fromCommandName(commandName: string, ...subcommandNames: string[]): Command | undefined;
+    public fromCommandName(commandNames: ReadonlyArray<string>): Command | undefined;
+    public fromCommandName(commandNames: string | ReadonlyArray<string>, ...subcommandNames: string[]) {
+        commandNames = typeof commandNames === "string" ? [commandNames, ...subcommandNames] : commandNames;
+        let resolver: Resolver = this;
+        let command: Command | undefined;
+        for (const commandName of commandNames) {
+            command = resolver._commandMap.get(normalizeName(commandName, /*caseInsensitive*/ true));
+            if (command === undefined) return undefined;
+            resolver = command;
+        }
+        return command;
+    }
+
+    public getCommands(): ReadonlyArray<Command> {
+        return Query.from(this._commandMap.values()).toArray();
+    }
+
+    protected abstract _createCommand(key: string, commandLineCommand: CommandLineCommand): Command;
+
+    private _addCommand(key: string, commandLineCommand: CommandLineCommand) {
+        const command = this._createCommand(key, commandLineCommand);
+        if (command.commandName) this._addCommandName(command.commandName, command);
+        this._hasCommands = true;
+    }
+
+    private _addCommandName(commandName: string, command: Command) {
+        commandName = normalizeName(commandName, /*caseInsensitive*/ true);
+        const existing = this._commandMap.get(commandName);
+        if (existing) throw Errors.duplicateCommand(commandName, command.key, existing.key);
+        this._commandMap.set(commandName, command);
+    }
 }
 
 export class Command extends Resolver {
@@ -510,12 +572,14 @@ export class Command extends Resolver {
     public readonly summary: string;
     public readonly description: string;
     public readonly visibility: "default" | "hidden";
+    public readonly parentCommand: Command | undefined;
 
-    constructor(parent: CommandResolver, key: string, commandLineCommand: CommandLineCommand) {
+    constructor(parent: CommandLineResolver | Command, key: string, commandLineCommand: CommandLineCommand) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
         if (!isObjectLike(commandLineCommand)) throw Errors.invalidCommand(key);
-        const { commandName, alias, include, options, optionSets, hidden, usage, example, summary, description, defaultGroup } = commandLineCommand;
-        super(optionSets, options, defaultGroup, parent);
+        const { commandName, alias, include, options, optionSets, commands, hidden, usage, example, summary, description, defaultGroup } = commandLineCommand;
+        super(optionSets, options, defaultGroup, commands, parent);
+        this.parentCommand = parent instanceof Command ? parent : undefined;
         this.key = key;
         this.command = commandLineCommand;
         this.commandName = normalizeName(commandName || key, /*caseInsensitive*/ false);
@@ -546,43 +610,23 @@ export class Command extends Resolver {
     protected _getCommand() {
         return this;
     }
+
+    protected _createCommand(key: string, commandLineCommand: CommandLineCommand) {
+        return new Command(this, key, commandLineCommand);
+    }
 }
 
-export class CommandResolver extends Resolver {
-    private readonly _commandMap = new Map<string, Command>();
-    private _hasCommands: boolean;
-    private _hasHelp: boolean;
+export class CommandLineResolver extends Resolver {
+    private _hasHelp!: boolean;
 
     constructor(settings: CommandLineSettings) {
-        super(settings.optionSets, settings.options, settings.defaultGroup);
-        this._hasCommands = false;
+        super(settings.optionSets, settings.options, settings.defaultGroup, settings.commands);
 
         // Ensure a help option.
         if (!this._hasHelp) {
             this.addOption("help", { type: "boolean", shortName: "h", longName: "help", alias: ["?"], help: true, description: "Prints this message." });
             this._hasHelp = true;
         }
-
-        if (settings.commands) {
-            for (const key of Object.keys(settings.commands)) {
-                const command = settings.commands[key];
-                if (command) {
-                    this.addCommand(key, settings.commands[key]);
-                }
-            }
-        }
-    }
-
-    public get hasCommands() {
-        return this._hasCommands;
-    }
-
-    public fromCommandName(commandName: string) {
-        return this._commandMap.get(normalizeName(commandName, /*caseInsensitive*/ true));
-    }
-
-    public getCommands(): ReadonlyArray<Command> {
-        return Query.from(this._commandMap.values()).toArray();
     }
 
     protected addOption(key: string, commandLineOption: CommandLineOption) {
@@ -593,21 +637,12 @@ export class CommandResolver extends Resolver {
         return option;
     }
 
-    protected addCommand(key: string, commandLineCommand: CommandLineCommand) {
-        const command = new Command(this, key, commandLineCommand);
-        if (command.commandName) this._addCommandName(command.commandName, command);
-        this._hasCommands = true;
-    }
-
     protected _getCommand(): Command | undefined {
         return undefined;
     }
 
-    private _addCommandName(commandName: string, command: Command) {
-        commandName = normalizeName(commandName, /*caseInsensitive*/ true);
-        const existing = this._commandMap.get(commandName);
-        if (existing) throw Errors.duplicateCommand(commandName, command.key, existing.key);
-        this._commandMap.set(commandName, command);
+    protected _createCommand(key: string, commandLineCommand: CommandLineCommand) {
+        return new Command(this, key, commandLineCommand);
     }
 }
 

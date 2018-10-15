@@ -4,6 +4,7 @@ usage: test <command> [[--x] <string>] [--gab] [--gac] [[--rest] <string[]>] [op
 
 commands:
  z                     The 'z' command.
+ w                     The 'w' command.
 
 general options:
  -a                    The -a option

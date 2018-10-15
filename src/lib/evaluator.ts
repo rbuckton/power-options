@@ -1,11 +1,22 @@
-import { ParsedCommandLine, CommandLineOption, CommandLineCommand, CommandLineParseError, ParsedArgumentType } from "./types";
+import { ParsedCommandLine, CommandLineCommand, CommandLineParseError } from "./types";
 import { getParameterName } from "./parser";
 import { Resolver, Option } from "./resolver";
 import { BoundCommand, BoundArgument } from "./binder";
 import { toCommandLineParseError } from "./utils";
 
 export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArguments: BoundArgument[], groups: string[] | undefined, resolver: Resolver): ParsedCommandLine<T> {
-    const commandName = boundCommand && boundCommand.command && boundCommand.command.commandName;
+    let commandName: string | undefined = boundCommand && boundCommand.command && boundCommand.command.commandName;
+    let commandPath: string[] | undefined;
+    if (boundCommand && boundCommand.command) {
+        commandName = boundCommand.command.commandName;
+        commandPath = [commandName];
+        let parent = boundCommand.parent;
+        while (parent) {
+            commandPath.unshift(parent.command!.commandName);
+            parent = parent.parent;
+        }
+    }
+
     let ok = true;
     let options: any = {};
     let command: CommandLineCommand | undefined;
@@ -30,7 +41,7 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
         command = boundCommand.command.command;
     }
 
-    return { options, commandName, command, group, help, error, status };
+    return { options, commandName, commandPath, command, group, help, error, status };
 
     function evaluateArgument(bound: BoundArgument) {
         if (bound.error) {

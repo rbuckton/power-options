@@ -1,14 +1,14 @@
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandResolver } from "../../out/lib/resolver";
-import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../../out/lib/parser";
-import { Option } from "../../out/lib/resolver";
-import { evaluate } from "../../out/lib/evaluator";
-import { BoundArgument, BoundArgumentValue, BoundCommand } from "../../out/lib/binder";
-import { ParsedCommandLine } from "../../out/lib/types";
+import { CommandLineResolver } from "../lib/resolver";
+import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/parser";
+import { Option } from "../lib/resolver";
+import { evaluate } from "../lib/evaluator";
+import { BoundArgument, BoundArgumentValue, BoundCommand } from "../lib/binder";
+import { ParsedCommandLine } from "../lib/types";
 
-const resolver = new CommandResolver({
+const resolver = new CommandLineResolver({
     options: {
         "a": { shortName: "a" },
         "b": { type: "string" },
@@ -68,18 +68,20 @@ function bound(parsed: ParsedArgument, key: string, argument: BoundArgumentValue
     };
 }
 
-function command(parsed: ParsedArgument, key: string): BoundCommand {
+function command(parsed: ParsedArgument, key: string, parent?: BoundCommand): BoundCommand {
     return {
+        parent,
         parsed,
         command: resolver.fromCommandName(key)
     };
 }
 
-function result<T>({ options, commandName, group, help, status = 0, error }: ParsedCommandLine<T>): ParsedCommandLine<T> {
+function result<T>({ options, commandName, commandPath, group, help, status = 0, error }: ParsedCommandLine<T>): ParsedCommandLine<T> {
     return {
         options,
         command: commandName ? resolver.fromCommandName(commandName).command : undefined,
         commandName,
+        commandPath: commandPath ? commandPath : commandName ? [commandName] : undefined,
         group,
         help,
         status,

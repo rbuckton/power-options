@@ -1,5 +1,8 @@
 import * as path from "path";
+import * as tty from "tty";
+import * as fs from "fs";
 import { CommandLineSettings, CommandLineParseError, CommandLineParseErrorDefinition } from "./types";
+import { Stream } from "stream";
 
 export interface PackageDetails {
     name: string | undefined;

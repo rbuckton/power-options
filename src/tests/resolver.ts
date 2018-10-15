@@ -1,9 +1,9 @@
 import { assert, expect } from "chai";
-import { CommandResolver } from "../../out/lib/resolver";
+import { CommandLineResolver } from "../lib/resolver";
 
 describe("OptionResolver", () => {
     it("default", () => {
-        const resolver = new CommandResolver({ options: { } });
+        const resolver = new CommandLineResolver({ options: { } });
         assert.isUndefined(resolver.getDefaultGroup());
         assert.isUndefined(resolver.getPassthru());
         assert.isUndefined(resolver.getRest());

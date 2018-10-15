@@ -1,13 +1,13 @@
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandLineOption } from "../../out/lib/types";
-import { CommandResolver } from "../../out/lib/resolver";
-import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../../out/lib/parser";
-import { Option } from "../../out/lib/resolver";
-import { bind, BoundArgument, BoundArgumentValue, BoundCommand } from "../../out/lib/binder";
+import { CommandLineOption } from "../lib/types";
+import { CommandLineResolver } from "../lib/resolver";
+import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/parser";
+import { Option } from "../lib/resolver";
+import { bind, BoundArgument, BoundArgumentValue, BoundCommand } from "../lib/binder";
 
-const resolver = new CommandResolver({
+const resolver = new CommandLineResolver({
     options: {
         "a": { shortName: "a" },
         "b": { type: "string" },
@@ -18,7 +18,10 @@ const resolver = new CommandResolver({
         "gbc": { type: "boolean", group: ["b", "c"] }
     },
     commands: {
-        "z": { }
+        "z": { },
+        "w": {
+            commands: { "v": { } }
+        }
     }
 });
 
@@ -35,6 +38,7 @@ describe("bind()", () => {
         [p = [parsed("--d", { longName: "d" }), arg("e,f", { value: "e,f", values: ["e", "f"] })], [bound(p[0], "d", { value: "e,f" })]],
         [p = [parsed("--d", { longName: "d" }), arg("e")], [bound(p[0], "d", { value: "e" })]],
         [p = [arg("z")], [], , command(p[0], "z")],
+        [p = [arg("w"), arg("v")], [], , command(p[1], "v", command(p[0], "w"))],
         // [p = [arg("z"), arg("f")], [bound(p[0], "z", { value: true }), bound(p[1], "x", { value: "f" })]],
         [p = [parsed("--gab", { longName: "gab" }), parsed("--gbc", { longName: "gbc" })], [bound(p[0], "gab", { value: true }), bound(p[1], "gbc", { value: true })], ["b"]]
     ], (parsed, bound, groups, command) => {
@@ -72,9 +76,10 @@ function bound(parsed: ParsedArgument, key: string, argument: BoundArgumentValue
     };
 }
 
-function command(parsed: ParsedArgument, key: string): BoundCommand {
+function command(parsed: ParsedArgument, key: string, parent?: BoundCommand): BoundCommand {
     return {
+        parent,
         parsed,
-        command: resolver.fromCommandName(key)
+        command: parent && parent.command ? parent.command.fromCommandName(key) : resolver.fromCommandName(key)
     };
 }

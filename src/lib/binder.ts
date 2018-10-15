@@ -1,8 +1,7 @@
-import { CommandLineOption, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, ParsedArgumentType } from "./types";
-import { CommandResolver, Command, Resolver, Option } from "./resolver";
+import { CommandLineParseError } from "./types";
+import { CommandLineResolver, Command, Resolver, Option } from "./resolver";
 import { getParameterName, ParsedArgument } from "./parser";
 import { toCommandLineParseError } from "./utils";
-import { Set } from "iterable-query/es5";
 
 const booleanPattern = /^(?:(-?1|t(rue)?|y(es)?)|(0|f(alse)?|n(o)?))$/i;
 
@@ -14,6 +13,7 @@ export interface BindResult {
 }
 
 export interface BoundCommand {
+    parent?: BoundCommand;
     parsed?: ParsedArgument;
     command?: Command;
     error?: CommandLineParseError;
@@ -36,7 +36,7 @@ interface PossibleBinding {
     possibleGroups: string[] | undefined;
 }
 
-export function bind(parsedArguments: ParsedArgument[], commandLineResolver: CommandResolver): BindResult {
+export function bind(parsedArguments: ParsedArgument[], commandLineResolver: CommandLineResolver): BindResult {
     const boundArguments: BoundArgument[] = [];
     const unboundArguments: ParsedArgument[] = [];
     const freeArguments: ParsedArgument[] = [];
@@ -46,9 +46,12 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
     let resolver: Resolver = commandLineResolver;
     let boundCommand: BoundCommand | undefined;
     let parsed: ParsedArgument | undefined;
+    let hasCommands = resolver.hasCommands;
 
     // Bind command
-    if (commandLineResolver.hasCommands) {
+    while (hasCommands) {
+        hasCommands = false;
+
         // Bind explicit arguments without a command
         while (parsed = parsedArguments.shift()) {
             const parameter = parsed.parameter;
@@ -78,7 +81,7 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
             const parsed = parsedArguments[i];
             if (!parsed.parameter) {
                 parsedArguments.splice(i, 1);
-                command = commandLineResolver.fromCommandName(parsed.text);
+                command = resolver.fromCommandName(parsed.text);
                 if (!command) {
                     boundCommand = {
                         parsed,
@@ -87,7 +90,8 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
                 }
                 else {
                     resolver = command;
-                    boundCommand = { parsed, command };
+                    boundCommand = { parent: boundCommand, parsed, command };
+                    hasCommands = resolver.hasCommands;
                 }
                 break;
             }

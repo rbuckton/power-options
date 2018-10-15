@@ -3,7 +3,7 @@ import { PassThrough, Writable } from "stream";
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandLine, CommandLineSettings } from "../../out/lib/index";
+import { CommandLine, CommandLineSettings } from "../lib/index";
 import { baseline } from "./baseline";
 
 const settings: CommandLineSettings = {
@@ -21,7 +21,21 @@ const settings: CommandLineSettings = {
         "pass": { passthru: true }
     },
     commands: {
-        "z": { summary: "The 'z' command." }
+        "z": { summary: "The 'z' command." },
+        "w": {
+            summary: "The 'w' command.",
+            options: {
+                "wa": { type: "string" }
+            },
+            commands: {
+                "v": {
+                    summary: "The 'v' command.",
+                    options: {
+                        "va": { type: "string" }
+                    }
+                }
+            }
+        }
     }
 };
 
@@ -36,7 +50,7 @@ describe("printHelp()", () => {
     });
     it("color", async () => {
         const stdout = new PassThrough({ encoding: "utf8" });
-        new CommandLine(Object.assign({ }, settings, { stdout, color: true })).printHelp();
+        new CommandLine(Object.assign({ }, settings, { stdout, color: "force", width: 190 })).printHelp();
         stdout.end();
         await baseline(options, "printHelp-color.txt", stdout);
     });
@@ -51,9 +65,24 @@ describe("printHelp(command)", () => {
     });
     it("color", async () => {
         const stdout = new PassThrough({ encoding: "utf8" });
-        new CommandLine(Object.assign({ }, settings, { stdout, color: true })).printHelp("z");
+        new CommandLine(Object.assign({ }, settings, { stdout, color: "force", width: 190 })).printHelp("z");
         stdout.end();
         await baseline(options, "printHelp-command-color.txt", stdout);
+    });
+});
+
+describe("printHelp(subcommand)", () => {
+    it("monochrome", async () => {
+        const stdout = new PassThrough({ encoding: "utf8" });
+        new CommandLine(Object.assign({ }, settings, { stdout })).printHelp("w", "v");
+        stdout.end();
+        await baseline(options, "printHelp-subcommand-monochrome.txt", stdout);
+    });
+    it("color", async () => {
+        const stdout = new PassThrough({ encoding: "utf8" });
+        new CommandLine(Object.assign({ }, settings, { stdout, color: "force", width: 190 })).printHelp("w", "v");
+        stdout.end();
+        await baseline(options, "printHelp-subcommand-color.txt", stdout);
     });
 });
 
@@ -66,7 +95,7 @@ describe("printError()", () => {
     });
     it("color", async () => {
         const stderr = new PassThrough({ encoding: "utf8" });
-        new CommandLine(Object.assign({ }, settings, { stderr, color: true })).printError("failed");
+        new CommandLine(Object.assign({ }, settings, { stderr, color: "force" })).printError("failed");
         stderr.end();
         await baseline(options, "printError-color.txt", stderr);
     });

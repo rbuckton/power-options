@@ -55,6 +55,16 @@ export interface CommandLineSettings {
     color?: boolean | "force";
 
     /**
+     * A value indicating the width of the terminal.
+     */
+    width?: number;
+
+    /**
+     * A value indicating the maximum width of the terminal.
+     */
+    maxWidth?: number;
+
+    /**
      * General options parsed on the command line.
      */
     options?: CommandLineOptionMap;
@@ -112,6 +122,11 @@ export interface CommandLineCommand {
      * NOTE: These are not included by default. To include them you must specify an "include".
      */
     optionSets?: CommandLineOptionSets;
+
+    /**
+     * Subcommands with individual command line options.
+     **/
+    commands?: CommandLineCommandMap;
 
     /**
      * Indicates the commend should not be printed when printing help text.
@@ -236,7 +251,7 @@ export interface CommandLineOptionBase<TValue, TDefault> {
     /**
      * Callback used to generate a default value for this option.
      */
-    defaultValue?: ((parsedArgs: any, group: string | undefined) => TDefault) | TDefault;
+    defaultValue?: ((parsedArgs: any, group: string | undefined) => TDefault | undefined) | TDefault;
 }
 
 export interface CommandLineOptionWithValueBase<TValue, TDefault> extends CommandLineOptionBase<TValue, TDefault> {
@@ -330,31 +345,17 @@ export interface CommandLineParseErrorDefinition {
     status?: number;
 }
 
-const construct: (target: new (...args: any[]) => any, argumentsList: any[], newTarget?: Function) => any =
-    typeof Reflect !== "undefined" && typeof Reflect.construct === "function"
-        ? (target, argumentsList, newTarget) => Reflect.construct(target, argumentsList, newTarget)
-        : (target, argumentsList, newTarget) => newTarget
-            ? Object.setPrototypeOf(new target(...argumentsList), newTarget.prototype)
-            : new target(...argumentsList);
-
-export class CommandLineParseError implements Error {
-    public name: string;
-    public message: string;
-    public stack?: string;
+export class CommandLineParseError extends Error {
     public help: boolean;
     public status: number;
 
     constructor(message?: string, help: boolean = false, status: number = -1) {
-        const newTarget = this.constructor;
-        const self = <CommandLineParseError>construct(Error, [message], newTarget);
-        self.help = help;
-        self.status = status;
-        return self;
+        super(message);
+        this.help = help;
+        this.status = status;
     }
 }
 
-Object.setPrototypeOf(CommandLineParseError, Error);
-Object.setPrototypeOf(CommandLineParseError.prototype, Error.prototype);
 Object.defineProperty(CommandLineParseError.prototype, "name", { writable: true, configurable: true, value: CommandLineParseError.name });
 
 export type ParsedArgumentType = string | number | boolean | string[] | number[];
@@ -362,6 +363,7 @@ export type ParsedArgumentType = string | number | boolean | string[] | number[]
 export interface ParsedCommandLine<T> {
     options: T;
     commandName?: string;
+    commandPath?: string[];
     command?: CommandLineCommand;
     group?: string;
     help?: boolean;

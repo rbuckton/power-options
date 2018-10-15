@@ -4,6 +4,7 @@
 
 [37m[1mcommands:[22m[39m
  [36m[1mz[22m[39m                     The 'z' command.
+ [36m[1mw[22m[39m                     The 'w' command.
 
 [37m[1mgeneral options:[22m[39m
  -a                    The [37m[1m-a[22m[39m option
