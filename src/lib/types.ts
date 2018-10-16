@@ -89,6 +89,11 @@ export interface CommandLineSettings<TMeta extends CommandLineMeta = any> {
     optionSets?: CommandLineOptionSets;
 
     /**
+     * A callback executed prior to executing the command line.
+     */
+    preExec?: CommandLineExecCallback<TMeta>;
+
+    /**
      * A callback that can be used to execute the command line if no command has already executed.
      */
     exec?: CommandLineExecCallback<TMeta>;

@@ -577,6 +577,7 @@ export class Command extends Resolver {
     constructor(parent: CommandLineResolver | Command, key: string, commandLineCommand: CommandLineCommand) {
         if (typeof key !== "string" || !key) throw Errors.invalidKey(key);
         if (!isObjectLike(commandLineCommand)) throw Errors.invalidCommand(key);
+        checkCommandLineCommand(key, commandLineCommand);
         const { commandName, alias, include, options, optionSets, commands, hidden, usage, example, summary, description, defaultGroup } = commandLineCommand;
         super(optionSets, options, defaultGroup, commands, parent);
         this.parentCommand = parent instanceof Command ? parent : undefined;
@@ -718,6 +719,17 @@ function checkCommandLineOption(key: string, type: "boolean" | "number" | "strin
     }
 }
 
+function checkCommandLineCommand(key: string, commandLineCommand: CommandLineCommand) {
+    const { help, container, exec } = commandLineCommand;
+    if (help) {
+        if (container) throw Errors.helpCommandCannotBeContainer(key);
+        if (exec) throw Errors.helpCommandCannotHaveExec(key);
+    }
+    if (container) {
+        if (exec) throw Errors.containerCommandCannotHaveExec(key);
+    }
+}
+
 namespace Errors {
     export function invalidKey(key: string) {
         return captureStackTrace(new TypeError(`Invalid key: '${key}'.`), invalidKey);
@@ -786,7 +798,16 @@ namespace Errors {
         return captureStackTrace(new Error(`Option '${key}' specifies the same position as option '${previousKey}'.`), duplicatePosition);
     }
     export function duplicatePositionWithGroups(key: string, previousKey: string, groups: string[]) {
-        throw new Error(`Option '${key}' specifies the same position as option '${previousKey}' in ${formatList(groups, "group", "groups")}.`);
+        return captureStackTrace(new Error(`Option '${key}' specifies the same position as option '${previousKey}' in ${formatList(groups, "group", "groups")}.`), duplicatePositionWithGroups);
+    }
+    export function helpCommandCannotBeContainer(key: string) {
+        return captureStackTrace(new Error(`Command '${key}' is declared as a help command and cannot be a container.`), helpCommandCannotBeContainer);
+    }
+    export function helpCommandCannotHaveExec(key: string) {
+        return captureStackTrace(new Error(`Command '${key}' is declared as a help command and cannot have an 'exec' callback.`), helpCommandCannotHaveExec);
+    }
+    export function containerCommandCannotHaveExec(key: string) {
+        return captureStackTrace(new Error(`Command '${key}' is declared as a container command and cannot have an 'exec' callback.`), containerCommandCannotHaveExec);
     }
     function formatList(list: string[], singular: string, plural: string) {
         return `${list.length > 1 ? plural : singular} ${list.map(s => `"${s}"`).join(", ")}`;

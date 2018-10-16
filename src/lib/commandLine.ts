@@ -29,13 +29,14 @@ export class CommandLine<TOptions = any, TContext = any> extends CommandLineReso
     public readonly width: number | undefined;
     public readonly maxWidth: number | undefined;
 
+    private _preExec: CommandLineExecCallback<CommandLineMeta<TOptions, TContext>> | undefined;
     private _exec: CommandLineExecCallback<CommandLineMeta<TOptions, TContext>> | undefined;
     private _colorStdout: boolean;
     private _colorStderr: boolean;
 
     constructor(settings: CommandLineSettings<CommandLineMeta<TOptions, TContext>>) {
         super(settings);
-        const { auto, usage, example, color, width, maxWidth, stdout, stderr, exec } = settings;
+        const { auto, usage, example, color, width, maxWidth, stdout, stderr, preExec, exec } = settings;
         const { name, description, version } = getPackageDetails(settings);
         this.settings = settings;
         this.name = name || "";
@@ -49,6 +50,7 @@ export class CommandLine<TOptions = any, TContext = any> extends CommandLineReso
         this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
         this.stdout = pickStream(stdout, process.stdout);
         this.stderr = pickStream(stderr, process.stderr);
+        this._preExec = preExec;
         this._exec = exec;
         this._colorStdout = color === "force" ? true : this.color && this.stdout instanceof tty.WriteStream;
         this._colorStderr = color === "force" ? true : this.color && this.stderr instanceof tty.WriteStream;
@@ -60,20 +62,25 @@ export class CommandLine<TOptions = any, TContext = any> extends CommandLineReso
 
     public async parseAndExecute(args: string[], context: TContext): Promise<ParsedCommandLine<TOptions>> {
         const result = this._parseCore(args, this.auto || "print");
-        if (result.handled) return result;
-        if (result.command && result.command.exec) {
+        if (!result.handled && this._preExec) {
+            const preExec = this._preExec;
+            await preExec(result, context);
+            this._handleResult(result, this.auto === true);
+        }
+
+        if (!result.handled && result.command && result.command.exec) {
             await result.command.exec(result as ParsedCommandLineForCommand<CommandLineMeta<TOptions, TContext>>, context);
             this._handleResult(result, this.auto === true);
             result.handled = true;
         }
-        else {
-            const fallbackExec = this._exec;
-            if (fallbackExec) {
-                await fallbackExec(result, context);
-                this._handleResult(result, this.auto === true);
-                result.handled = true;
-            }
+
+        if (!result.handled && this._exec) {
+            const exec = this._exec;
+            await exec(result, context);
+            this._handleResult(result, this.auto === true);
+            result.handled = true;
         }
+
         return result;
     }
 

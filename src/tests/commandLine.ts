@@ -215,5 +215,35 @@ describe("commandLine", () => {
                 process.exit = savedExit;
             }
         });
+        it("preExec before command", async () => {
+            const order: string[] = [];
+            const commandLine = new CommandLine({
+                preExec: () => { order.push("preExec"); },
+                commands: {
+                    "a": {
+                        exec: () => {
+                            order.push("exec");
+                        }
+                    }
+                }
+            });
+            const context = {};
+            const result = await commandLine.parseAndExecute(["a"], context);
+            expect(order).to.deep.equal(["preExec", "exec"]);
+        });
+        it("preExec before fallback", async () => {
+            const order: string[] = [];
+            const commandLine = new CommandLine({
+                preExec: () => { order.push("preExec"); },
+                exec: () => { order.push("exec"); },
+                commands: {
+                    "a": {
+                    }
+                }
+            });
+            const context = {};
+            const result = await commandLine.parseAndExecute(["a"], context);
+            expect(order).to.deep.equal(["preExec", "exec"]);
+        });
     });
 });
