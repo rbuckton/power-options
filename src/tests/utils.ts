@@ -1,4 +1,5 @@
 import { assert, expect } from "chai";
+import { PassThrough, Writable } from "stream";
 export function theory(name: string, data: any[][], cb: (...args: any[]) => void) {
     const numTheories = data.length;
     for (let i = 0; i < numTheories; i++) {
@@ -33,5 +34,56 @@ function formatTheoryArgument(value: any) {
             }
         default:
             return JSON.stringify(value);
+    }
+}
+
+export class StringWritable extends Writable {
+    private _promise: Promise<string>;
+    private _resolve: (value: string) => void;
+    private _reject: (reason: any) => void;
+    private _string: string;
+
+    constructor() {
+        super();
+        this._string = "";
+        this._promise = new Promise((resolve, reject) => {
+            this._resolve = resolve;
+            this._reject = reject;
+        });
+    }
+
+    _write(chunk: string | Buffer, _encoding: string, callback: (error?: Error | null) => void) {
+        if (Buffer.isBuffer(chunk)) chunk = chunk.toString("utf8");
+        this._string += chunk;
+        callback();
+    }
+
+    _writev(chunks: Array<{ chunk: string | Buffer, encoding: string }>, callback: (error?: Error | null) => void): void {
+        for (let { chunk } of chunks) {
+            if (Buffer.isBuffer(chunk)) chunk = chunk.toString("utf8");
+            this._string += chunk;
+        }
+        callback();
+    }
+
+    _final(callback: (error?: Error | null) => void): void {
+        this._resolve(this._string);
+        this._string = "";
+        callback();
+    }
+
+    _destroy(error: Error | null, callback: (error: Error | null) => void): void {
+        if (error) {
+            this._reject(error);
+        }
+        else {
+            this._resolve(this._string);
+            this._string = "";
+        }
+        callback(error);
+    }
+
+    waitForEnd() {
+        return this._promise;
     }
 }

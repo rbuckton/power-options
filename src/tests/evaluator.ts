@@ -76,7 +76,7 @@ function command(parsed: ParsedArgument, key: string, parent?: BoundCommand): Bo
     };
 }
 
-function result<T>({ options, commandName, commandPath, group, help, status = 0, error }: ParsedCommandLine<T>): ParsedCommandLine<T> {
+function result<T>({ options, commandName, commandPath, group, help, status = 0, error }: Partial<ParsedCommandLine<T>>): ParsedCommandLine<T> {
     return {
         options,
         command: commandName ? resolver.fromCommandName(commandName).command : undefined,
@@ -85,6 +85,7 @@ function result<T>({ options, commandName, commandPath, group, help, status = 0,
         group,
         help,
         status,
-        error
+        error,
+        handled: false
     };
 }

@@ -1,7 +1,11 @@
+export interface CommandLineMeta<TOptions = {}, TContext = {}> { options: TOptions, context: TContext }
+export type CommandLineExecCallback<TMeta extends CommandLineMeta = any> = (parsedCommandLine: ParsedCommandLine<TMeta["options"]>, context: TMeta["context"]) => void | PromiseLike<void>;
+export type CommandLineCommandExecCallback<TMeta extends CommandLineMeta = any> = (parsedCommandLine: ParsedCommandLineForCommand<TMeta>, context: TMeta["context"]) => void | PromiseLike<void>;
+
 /**
  * Settings that control how to parse command line arguments.
  */
-export interface CommandLineSettings {
+export interface CommandLineSettings<TMeta extends CommandLineMeta = any> {
     /**
      * The program's name. Default value loaded from package.json.
      */
@@ -72,7 +76,7 @@ export interface CommandLineSettings {
     /**
      * Commands with individual command line options.
      **/
-    commands?: CommandLineCommandMap;
+    commands?: CommandLineCommandMap<TMeta>;
 
     /**
      * An optional default parameter group.
@@ -83,19 +87,24 @@ export interface CommandLineSettings {
      * Named sets of reusable command-line options.
      */
     optionSets?: CommandLineOptionSets;
+
+    /**
+     * A callback that can be used to execute the command line if no command has already executed.
+     */
+    exec?: CommandLineExecCallback<TMeta>;
 }
 
 /**
  * Named command commands.
  */
-export interface CommandLineCommandMap {
-    [key: string]: CommandLineCommand;
+export interface CommandLineCommandMap<TMeta extends CommandLineMeta = any> {
+    [key: string]: CommandLineCommand<TMeta>;
 }
 
 /**
  * Describes a command, for programs that can perform multiple different behaviors.
  */
-export interface CommandLineCommand {
+export interface CommandLineCommand<TMeta extends CommandLineMeta = any> {
     /**
      * The name of the command. If not specified, the key provided in the CommandLineCommandMap
      * will be used.
@@ -126,7 +135,7 @@ export interface CommandLineCommand {
     /**
      * Subcommands with individual command line options.
      **/
-    commands?: CommandLineCommandMap;
+    commands?: CommandLineCommandMap<TMeta>;
 
     /**
      * Indicates the commend should not be printed when printing help text.
@@ -157,6 +166,24 @@ export interface CommandLineCommand {
      * An optional default parameter group.
      */
     defaultGroup?: string;
+
+    /**
+     * Indicates that this command represents a request for top-level help.
+     *
+     * NOTE: A help command may not have subcommands.
+     */
+    help?: boolean;
+
+    /**
+     * Indicates that this command represents a container only. Help should be printed for this
+     * command and its subcommands when invoked.
+     */
+    container?: boolean;
+
+    /**
+     * A callback that can be used to execute the command.
+     */
+    exec?: CommandLineCommandExecCallback<TMeta>;
 }
 
 export interface CommandLineOptionSets {
@@ -361,6 +388,7 @@ Object.defineProperty(CommandLineParseError.prototype, "name", { writable: true,
 export type ParsedArgumentType = string | number | boolean | string[] | number[];
 
 export interface ParsedCommandLine<T> {
+    handled: boolean;
     options: T;
     commandName?: string;
     commandPath?: string[];
@@ -369,4 +397,10 @@ export interface ParsedCommandLine<T> {
     help?: boolean;
     error?: string;
     status?: number;
+}
+
+export interface ParsedCommandLineForCommand<TMeta extends CommandLineMeta = any> extends ParsedCommandLine<TMeta["options"]> {
+    commandName: string;
+    commandPath: string[];
+    command: CommandLineCommand<TMeta>;
 }

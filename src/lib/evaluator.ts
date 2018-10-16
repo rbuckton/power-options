@@ -25,6 +25,18 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
     let error: string | undefined = undefined;
     let status: number | undefined = 0;
 
+    if (boundCommand && boundCommand.command) {
+        const command = boundCommand.command.command;
+        if (command.container) {
+            help = true;
+        }
+        else if (command.help) {
+            help = true;
+            commandName = undefined;
+            commandPath = undefined;
+        }
+    }
+
     // evaluate bound arguments
     for (const arg of boundArguments) {
         if (!evaluateArgument(arg)) ok = false;
@@ -39,9 +51,17 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
 
     if (ok && !help && !error && boundCommand && boundCommand.command) {
         command = boundCommand.command.command;
+        if (command.container) {
+            help = true;
+        }
+        else if (command.help) {
+            help = true;
+            commandName = undefined;
+            commandPath = undefined;
+        }
     }
 
-    return { options, commandName, commandPath, command, group, help, error, status };
+    return { options, commandName, commandPath, command, group, help, error, status, handled: false };
 
     function evaluateArgument(bound: BoundArgument) {
         if (bound.error) {

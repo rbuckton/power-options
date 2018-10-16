@@ -1,9 +1,7 @@
-import { install } from "source-map-support";
-
-install();
-
+import "source-map-support/register";
 import "./resolver";
 import "./parser";
 import "./binder";
 import "./evaluator";
 import "./printer";
+import "./commandLine";

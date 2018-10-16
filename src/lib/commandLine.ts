@@ -3,20 +3,19 @@ import * as net from "net";
 import * as chalk from "chalk";
 import { EOL } from "os";
 import { PassThrough } from "stream";
-import { CommandLineResolver, Option, Resolver, Command } from "./resolver";
+import { CommandLineResolver, Resolver, Command } from "./resolver";
 import { parse } from "./parser";
 import { bind } from "./binder";
 import { evaluate } from "./evaluator";
 import { getPackageDetails } from "./utils";
 import { HelpWriter } from "./printer";
-import { CommandLineSettings, ParsedCommandLine } from "./types";
-import { Queryable } from "iterable-query/es5";
+import { CommandLineSettings, ParsedCommandLine, CommandLineMeta, CommandLineExecCallback, ParsedCommandLineForCommand } from "./types";
 
 export function parseCommandLine<T>(args: string[], settings: CommandLineSettings): ParsedCommandLine<T> {
     return new CommandLine(settings).parse<T>(args);
 }
 
-export class CommandLine extends CommandLineResolver {
+export class CommandLine<TOptions = any, TContext = any> extends CommandLineResolver {
     public readonly settings: CommandLineSettings;
     public readonly name: string;
     public readonly description: string;
@@ -30,12 +29,13 @@ export class CommandLine extends CommandLineResolver {
     public readonly width: number | undefined;
     public readonly maxWidth: number | undefined;
 
+    private _exec: CommandLineExecCallback<CommandLineMeta<TOptions, TContext>> | undefined;
     private _colorStdout: boolean;
     private _colorStderr: boolean;
 
-    constructor(settings: CommandLineSettings) {
+    constructor(settings: CommandLineSettings<CommandLineMeta<TOptions, TContext>>) {
         super(settings);
-        const { auto, usage, example, color, width, maxWidth, stdout, stderr } = settings;
+        const { auto, usage, example, color, width, maxWidth, stdout, stderr, exec } = settings;
         const { name, description, version } = getPackageDetails(settings);
         this.settings = settings;
         this.name = name || "";
@@ -49,18 +49,30 @@ export class CommandLine extends CommandLineResolver {
         this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
         this.stdout = pickStream(stdout, process.stdout);
         this.stderr = pickStream(stderr, process.stderr);
+        this._exec = exec;
         this._colorStdout = color === "force" ? true : this.color && this.stdout instanceof tty.WriteStream;
         this._colorStderr = color === "force" ? true : this.color && this.stderr instanceof tty.WriteStream;
     }
 
-    public parse<T>(args: string[]): ParsedCommandLine<T> {
-        const { parsedArguments } = parse(args);
-        const { boundCommand, boundArguments, groups, resolver } = bind(parsedArguments, this);
-        const result = evaluate<T>(boundCommand, boundArguments, groups, resolver);
-        if (this.auto && (result.error || result.help)) {
-            if (result.error) this.printError(result.error);
-            if (result.help) this.printHelp(result.commandPath);
-            if (this.auto === true) process.exit(result.status);
+    public parse<T extends TOptions = TOptions>(args: string[]): ParsedCommandLine<T> {
+        return this._parseCore(args, this.auto);
+    }
+
+    public async parseAndExecute(args: string[], context: TContext): Promise<ParsedCommandLine<TOptions>> {
+        const result = this._parseCore(args, this.auto || "print");
+        if (result.handled) return result;
+        if (result.command && result.command.exec) {
+            await result.command.exec(result as ParsedCommandLineForCommand<CommandLineMeta<TOptions, TContext>>, context);
+            this._handleResult(result, this.auto === true);
+            result.handled = true;
+        }
+        else {
+            const fallbackExec = this._exec;
+            if (fallbackExec) {
+                await fallbackExec(result, context);
+                this._handleResult(result, this.auto === true);
+                result.handled = true;
+            }
         }
         return result;
     }
@@ -92,8 +104,8 @@ export class CommandLine extends CommandLineResolver {
             }
         }
 
-        const width = this.width !== undefined ? this.width : 
-            this.stdout instanceof tty.WriteStream ? this.stdout.columns - 2 : 
+        const width = this.width !== undefined ? this.width :
+            this.stdout instanceof tty.WriteStream ? this.stdout.columns - 2 :
             undefined;
         const maxWidth = this.maxWidth !== undefined ? this.maxWidth :
             this.width !== undefined ? this.width :
@@ -114,6 +126,27 @@ export class CommandLine extends CommandLineResolver {
         writer.addOptions(generalOptions);
         writer.addExamples(command ? command.examples : this.examples);
         writer.write(this.stdout);
+    }
+
+    private _parseCore<T extends TOptions = TOptions>(args: string[], auto: boolean | "print" | undefined): ParsedCommandLine<T> {
+        const { parsedArguments } = parse(args);
+        const { boundCommand, boundArguments, groups, resolver } = bind(parsedArguments, this);
+        const result = evaluate<T>(boundCommand, boundArguments, groups, resolver);
+        if (auto) {
+            this._handleResult(result, auto === true);
+        }
+        return result;
+    }
+
+    private _handleResult(result: ParsedCommandLine<TOptions>, exit: boolean) {
+        if (!result.handled && (result.error || result.help)) {
+            if (result.error) this.printError(result.error);
+            if (result.help) this.printHelp(result.commandPath);
+            result.handled = true;
+        }
+        if (result.handled && exit) {
+            process.exit(result.status);
+        }
     }
 }
 

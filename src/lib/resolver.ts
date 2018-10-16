@@ -1,6 +1,6 @@
-import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType, CommandLineCommandMap } from "./types";
+import { CommandLineOptionSet, CommandLineOption, CommandLineValueMap, CommandLineUnspecifiedOption, CommandLineOptionMap, CommandLineCommand, CommandLineParseError, CommandLineParseErrorDefinition, CommandLineSettings, CommandLineOptionSets, ParsedArgumentType, CommandLineCommandMap, CommandLineMeta } from "./types";
 import { compareValues, isObjectLike } from "./utils";
-import { Query, Queryable } from "iterable-query";
+import { Query, Queryable, from } from "iterable-query";
 
 export class OptionSet {
     public readonly key: string;
@@ -131,14 +131,14 @@ export class Option {
         }
     }
 
-    public static compare(x: Option | undefined, y: Option | undefined) {
+    public static compare(x: Option | undefined, y: Option | undefined): number {
         if (x === y) return 0;
         if (x === undefined) return -1;
         if (y === undefined) return +1;
         return compareValues(x._sortKey, y._sortKey);
     }
 
-    public static comparePositions(x: Option | undefined, y: Option | undefined) {
+    public static comparePositions(x: Option | undefined, y: Option | undefined): number {
         if (x === y) return 0;
         if (x === undefined) return -1;
         if (y === undefined) return +1;
@@ -156,7 +156,7 @@ export class Option {
         return this.passthru;
     }
 
-    public compare(other: Option | undefined) {
+    public compare(other: Option | undefined): number {
         return Option.compare(this, other);
     }
 
@@ -231,7 +231,7 @@ export class Option {
         return this._defaultValue;
     }
 
-    public toUsageString() {
+    public toUsageString(): string {
         let usage = this.parameterName;
         if (this.type !== "boolean" && !this.passthru) {
             if (this.position !== undefined || this.rest) {
@@ -306,6 +306,10 @@ export abstract class Resolver {
         }
     }
 
+    public get hasCommands(): boolean {
+        return this._hasCommands;
+    }
+
     public getPassthru(): PassthruOption | undefined {
         return this._passthru
             || (this._parent ? this._parent.getPassthru() : undefined);
@@ -346,13 +350,13 @@ export abstract class Resolver {
             || (this._parent ? this._parent.get(key) : undefined);
     }
 
-    public getShortName(key: string, includePrefix?: boolean) {
+    public getShortName(key: string, includePrefix?: boolean): string | undefined {
         const option = this.get(key);
         if (!option || !option.shortName) return undefined;
         return includePrefix ? "-" + option.shortName : option.shortName;
     }
 
-    public getLongName(key: string, includePrefix?: boolean) {
+    public getLongName(key: string, includePrefix?: boolean): string | undefined {
         const option = this.get(key);
         if (!option || !option.longName) return undefined;
         return includePrefix ? "--" + option.longName : option.longName;
@@ -378,8 +382,8 @@ export abstract class Resolver {
             .toArray();
     }
 
-    protected _getOptions(group: string | undefined, own: boolean) {
-        let q = Query.from(this._options);
+    protected _getOptions(group: string | undefined, own: boolean): Query<Option> {
+        let q = from(this._options);
         if (group === undefined) {
             q = q.where(option => option.groups.length === 0);
         }
@@ -392,7 +396,7 @@ export abstract class Resolver {
         return q;
     }
 
-    protected addOption(key: string, commandLineOption: CommandLineOption, optionSet?: OptionSet) {
+    protected addOption(key: string, commandLineOption: CommandLineOption, optionSet?: OptionSet): Option {
         const option = new Option(key, commandLineOption, this._getCommand(), optionSet);
         this._addKey(key, option);
         if (option.isPassthru()) this._addPassthru(option);
@@ -406,14 +410,14 @@ export abstract class Resolver {
         return option;
     }
 
-    protected _addOptionSets(include: Queryable<string> | undefined) {
+    protected _addOptionSets(include: Queryable<string> | undefined): void {
         if (include) {
             this._addOptionSetsWorker(include, new Set<string>());
         }
     }
 
-    private _addOptionSetsWorker(include: Queryable<string>, includedSets: Set<string>) {
-        Query.from(include).forEach(name => {
+    private _addOptionSetsWorker(include: Queryable<string>, includedSets: Set<string>): void {
+        from(include).forEach(name => {
             if (!includedSets.has(name)) {
                 includedSets.add(name);
                 const optionSet = this._getOptionSet(name);
@@ -425,7 +429,7 @@ export abstract class Resolver {
         });
     }
 
-    private _addOptions(options: CommandLineOptionMap | undefined, optionSet?: OptionSet) {
+    private _addOptions(options: CommandLineOptionMap | undefined, optionSet?: OptionSet): void {
         if (options) {
             for (const key of Object.keys(options)) {
                 const option = options[key];
@@ -442,23 +446,23 @@ export abstract class Resolver {
 
     protected abstract _getCommand(): Command | undefined;
 
-    private _addPassthru(option: PassthruOption) {
+    private _addPassthru(option: PassthruOption): void {
         if (this._passthru) throw Errors.duplicatePassthru(option.key, this._passthru.key);
         this._passthru = option;
     }
 
-    private _addRest(option: RestOption) {
+    private _addRest(option: RestOption): void {
         if (this._rest) throw Errors.duplicateRest(option.key, this._rest.key);
         this._rest = option;
     }
 
-    private _addKey(key: string, option: Option) {
+    private _addKey(key: string, option: Option): void {
         const existing = this._keyMap.get(key);
         if (existing) throw Errors.duplicateKey(key);
         this._keyMap.set(key, option);
     }
 
-    private _addLongName(longName: string, option: Option, kind: string) {
+    private _addLongName(longName: string, option: Option, kind: string): void {
         const caseInsensitiveLongName = normalizeName(longName, /*caseInsensitive*/ true);
         const existing = this._longNameMap.get(caseInsensitiveLongName);
         if (existing) {
@@ -468,7 +472,7 @@ export abstract class Resolver {
         this._longNameMap.set(caseInsensitiveLongName, option);
     }
 
-    private _addShortName(shortName: string, option: Option, kind: string) {
+    private _addShortName(shortName: string, option: Option, kind: string): void {
         const existing = this._shortNameMap.get(shortName);
         if (existing) {
             throw new Error(`Duplicate ${kind} '${shortName}' for option '${option.key}' conflicts with previous definition '${existing.key}'.`);
@@ -477,7 +481,7 @@ export abstract class Resolver {
         this._shortNameMap.set(shortName, option);
     }
 
-    private _addAliases(option: Option) {
+    private _addAliases(option: Option): void {
         for (const alias of option.aliases) {
             if (alias.length === 1)
                 this._addShortName(alias, option, "alias");
@@ -486,7 +490,7 @@ export abstract class Resolver {
         }
     }
 
-    private _getOptionsForPosition(position: number) {
+    private _getOptionsForPosition(position: number): Option[] {
         let options = this._positionMap.get(position);
         if (options) return options;
         options = [];
@@ -494,7 +498,7 @@ export abstract class Resolver {
         return options;
     }
 
-    private _addPosition(position: number, option: Option) {
+    private _addPosition(position: number, option: Option): void {
         const options = this._getOptionsForPosition(position);
         if (option.groups.length === 0) {
             if (options.length > 0) throw Errors.duplicatePosition(option.key, options[0].key);
@@ -514,7 +518,7 @@ export abstract class Resolver {
         options.push(option);
     }
 
-    private _addGroups(option: Option) {
+    private _addGroups(option: Option): void {
         for (const group of option.groups) {
             if (!this._groupsSet.has(group)) {
                 this._groupsSet.add(group);
@@ -523,13 +527,9 @@ export abstract class Resolver {
         }
     }
 
-    public get hasCommands() {
-        return this._hasCommands;
-    }
-
     public fromCommandName(commandName: string, ...subcommandNames: string[]): Command | undefined;
     public fromCommandName(commandNames: ReadonlyArray<string>): Command | undefined;
-    public fromCommandName(commandNames: string | ReadonlyArray<string>, ...subcommandNames: string[]) {
+    public fromCommandName(commandNames: string | ReadonlyArray<string>, ...subcommandNames: string[]): Command | undefined {
         commandNames = typeof commandNames === "string" ? [commandNames, ...subcommandNames] : commandNames;
         let resolver: Resolver = this;
         let command: Command | undefined;
@@ -547,13 +547,13 @@ export abstract class Resolver {
 
     protected abstract _createCommand(key: string, commandLineCommand: CommandLineCommand): Command;
 
-    private _addCommand(key: string, commandLineCommand: CommandLineCommand) {
+    private _addCommand(key: string, commandLineCommand: CommandLineCommand): void {
         const command = this._createCommand(key, commandLineCommand);
         if (command.commandName) this._addCommandName(command.commandName, command);
         this._hasCommands = true;
     }
 
-    private _addCommandName(commandName: string, command: Command) {
+    private _addCommandName(commandName: string, command: Command): void {
         commandName = normalizeName(commandName, /*caseInsensitive*/ true);
         const existing = this._commandMap.get(commandName);
         if (existing) throw Errors.duplicateCommand(commandName, command.key, existing.key);
@@ -595,7 +595,7 @@ export class Command extends Resolver {
         }
     }
 
-    public static compare(x: Command | undefined, y: Command | undefined) {
+    public static compare(x: Command | undefined, y: Command | undefined): number {
         if (x === y) return 0;
         if (x === undefined) return -1;
         if (y === undefined) return +1;
@@ -603,15 +603,15 @@ export class Command extends Resolver {
             || compareValues(x.key, y.key);
     }
 
-    public compare(other: Command | undefined) {
+    public compare(other: Command | undefined): number {
         return Command.compare(this, other);
     }
 
-    protected _getCommand() {
+    protected _getCommand(): Command {
         return this;
     }
 
-    protected _createCommand(key: string, commandLineCommand: CommandLineCommand) {
+    protected _createCommand(key: string, commandLineCommand: CommandLineCommand): Command {
         return new Command(this, key, commandLineCommand);
     }
 }
@@ -629,7 +629,7 @@ export class CommandLineResolver extends Resolver {
         }
     }
 
-    protected addOption(key: string, commandLineOption: CommandLineOption) {
+    protected addOption(key: string, commandLineOption: CommandLineOption): Option {
         const option = super.addOption(key, commandLineOption);
         if (option.help) {
             this._hasHelp = true;
@@ -641,12 +641,12 @@ export class CommandLineResolver extends Resolver {
         return undefined;
     }
 
-    protected _createCommand(key: string, commandLineCommand: CommandLineCommand) {
+    protected _createCommand(key: string, commandLineCommand: CommandLineCommand): Command {
         return new Command(this, key, commandLineCommand);
     }
 }
 
-export function normalizeName(name: string, caseInsensitive: boolean) {
+export function normalizeName(name: string, caseInsensitive: boolean): string {
     if (name) {
         name = name.trim().replace(/_/g, "-");
         if (caseInsensitive) {
@@ -720,75 +720,79 @@ function checkCommandLineOption(key: string, type: "boolean" | "number" | "strin
 
 namespace Errors {
     export function invalidKey(key: string) {
-        return new TypeError(`Invalid key: '${key}'.`);
+        return captureStackTrace(new TypeError(`Invalid key: '${key}'.`), invalidKey);
     }
     export function invalidCommandLineOption(key: string) {
-        return new TypeError(`Invalid CommandLineOption for key: '${key}'`);
+        return captureStackTrace(new TypeError(`Invalid CommandLineOption for key: '${key}'`), invalidCommandLineOption);
     }
     export function invalidCommand(key: string) {
-        return new TypeError(`Invalid CommandLineCommand for key: '${key}'`);
+        return captureStackTrace(new TypeError(`Invalid CommandLineCommand for key: '${key}'`), invalidCommand);
     }
     export function invalidShortName(key: string) {
-        return new Error(`Option '${key}' has an invalid short name. Short names may only be a single character.`);
+        return captureStackTrace(new Error(`Option '${key}' has an invalid short name. Short names may only be a single character.`), invalidShortName);
     }
     export function invalidLongName(key: string) {
-        return new Error(`Option '${key}' has an invalid long name. Long names must be one or more characters with no whitespace.`);
+        return captureStackTrace(new Error(`Option '${key}' has an invalid long name. Long names must be one or more characters with no whitespace.`), invalidLongName);
     }
     export function invalidAlias(key: string) {
-        return new Error(`Option '${key}' has an invalid alias. Aliases must be one or more characters with no whitespace.`);
+        return captureStackTrace(new Error(`Option '${key}' has an invalid alias. Aliases must be one or more characters with no whitespace.`), invalidAlias);
     }
     export function optionCannotBeBothSingleAndMultiple(key: string) {
-        return new Error(`Option '${key}' cannot be both single and multiple.`);
+        return captureStackTrace(new Error(`Option '${key}' cannot be both single and multiple.`), optionCannotBeBothSingleAndMultiple);
     }
     export function restOptionCannotBeSingle(key: string) {
-        return new Error(`Option '${key}' is declared as a rest option and cannot be single.`);
+        return captureStackTrace(new Error(`Option '${key}' is declared as a rest option and cannot be single.`), restOptionCannotBeSingle);
     }
     export function helpOptionCannotBeMultiple(key: string) {
-        return new Error(`Option '${key}' is declared as a help option and cannot be multiple.`);
+        return captureStackTrace(new Error(`Option '${key}' is declared as a help option and cannot be multiple.`), helpOptionCannotBeMultiple);
     }
     export function helpOptionCannotBeRest(key: string) {
-        return new Error(`Option '${key}' is declared as a help option and cannot be declared as a rest option.`);
+        return captureStackTrace(new Error(`Option '${key}' is declared as a help option and cannot be declared as a rest option.`), helpOptionCannotBeRest);
     }
     export function helpOptionCannotBePassthru(key: string) {
-        return new Error(`Option '${key}' is declared as a help option and cannot be declared as a passthru option.`);
+        return captureStackTrace(new Error(`Option '${key}' is declared as a help option and cannot be declared as a passthru option.`), helpOptionCannotBePassthru);
     }
     export function booleanOptionCannotBeMultiple(key: string) {
-        return new Error(`Option '${key}' of type 'boolean' cannot be multiple.`);
+        return captureStackTrace(new Error(`Option '${key}' of type 'boolean' cannot be multiple.`), booleanOptionCannotBeMultiple);
     }
     export function booleanOptionCannotBePassthru(key: string) {
-        return new Error(`Option '${key}' of type 'boolean' cannot be passthru.`);
+        return captureStackTrace(new Error(`Option '${key}' of type 'boolean' cannot be passthru.`), booleanOptionCannotBePassthru);
     }
     export function booleanOptionCannotBeRest(key: string) {
-        return new Error(`Option '${key}' of type 'boolean' cannot be rest.`);
+        return captureStackTrace(new Error(`Option '${key}' of type 'boolean' cannot be rest.`), booleanOptionCannotBeRest);
     }
     export function booleanOptionCannotHaveConverter(key: string) {
-        return new Error(`Option '${key}' of type 'boolean' cannot have a convert method.`);
+        return captureStackTrace(new Error(`Option '${key}' of type 'boolean' cannot have a convert method.`), booleanOptionCannotHaveConverter);
     }
     export function stringOrNumberOptionCannotBeHelp(key: string, type: string) {
-        return new Error(`Option '${key}' of type '${type}' cannot be help.`);
+        return captureStackTrace(new Error(`Option '${key}' of type '${type}' cannot be help.`), stringOrNumberOptionCannotBeHelp);
     }
     export function noConversionDefined(key: string) {
-        return new Error(`Option '${key}' does not have a converter defined.`);
+        return captureStackTrace(new Error(`Option '${key}' does not have a converter defined.`), noConversionDefined);
     }
     export function duplicateKey(key: string) {
-        return new Error(`Duplicate key: '${key}'`);
+        return captureStackTrace(new Error(`Duplicate key: '${key}'`), duplicateKey);
     }
     export function duplicatePassthru(key: string, previousKey: string) {
-        return new Error(`Duplicate passthru option '${key}' conflicts with previous definition '${previousKey}'`);
+        return captureStackTrace(new Error(`Duplicate passthru option '${key}' conflicts with previous definition '${previousKey}'`), duplicatePassthru);
     }
     export function duplicateRest(key: string, previousKey: string) {
-        return new Error(`Duplicate rest option '${key}' conflicts with previous definition '${previousKey}'`);
+        return captureStackTrace(new Error(`Duplicate rest option '${key}' conflicts with previous definition '${previousKey}'`), duplicateRest);
     }
     export function duplicateCommand(commandName: string, key: string, previousKey: string) {
-        return new Error(`Duplicate command name '${commandName}' for command '${key}' conflicts with previous definition '${previousKey}'.`);
+        return captureStackTrace(new Error(`Duplicate command name '${commandName}' for command '${key}' conflicts with previous definition '${previousKey}'.`), duplicateCommand);
     }
     export function duplicatePosition(key: string, previousKey: string) {
-        return new Error(`Option '${key}' specifies the same position as option '${previousKey}'.`);
+        return captureStackTrace(new Error(`Option '${key}' specifies the same position as option '${previousKey}'.`), duplicatePosition);
     }
     export function duplicatePositionWithGroups(key: string, previousKey: string, groups: string[]) {
         throw new Error(`Option '${key}' specifies the same position as option '${previousKey}' in ${formatList(groups, "group", "groups")}.`);
     }
     function formatList(list: string[], singular: string, plural: string) {
         return `${list.length > 1 ? plural : singular} ${list.map(s => `"${s}"`).join(", ")}`;
+    }
+    function captureStackTrace<T extends Error>(error: T, stackCrawlMark: Function) {
+        Error.captureStackTrace(error, stackCrawlMark);
+        return error;
     }
 }

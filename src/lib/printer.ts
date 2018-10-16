@@ -4,7 +4,7 @@ import * as chalk from "chalk";
 import { Query, Queryable } from "iterable-query";
 import { EOL } from "os";
 import { Resolver, Command, Option, OptionSet } from "./resolver";
-import { CommandLine } from "./options";
+import { CommandLine } from "./commandLine";
 import { getParameterName } from "./parser";
 
 declare module "chalk" {

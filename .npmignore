@@ -3,6 +3,6 @@
 node_modules
 src
 baselines
-out/test
+out
 dist/test
 gulpfile.js
