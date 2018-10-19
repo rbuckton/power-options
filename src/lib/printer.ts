@@ -170,7 +170,7 @@ export class HelpWriter {
                 }
 
                 if (hasCommands) {
-                    usage.push(this.format(isContainer ? `[<command>]` : "<command>"));
+                    usage.push(this.format(isContainer ? `<command>` : "[<command>]"));
                 }
 
                 let numOptions = 0;
