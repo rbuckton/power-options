@@ -8,6 +8,7 @@ import { baseline } from "./baseline";
 
 const settings: CommandLineSettings = {
     name: "test",
+    container: true,
     options: {
         "a": { shortName: "a", longName: null, description: "The -a option" },
         "b": { type: "string", description: "The --b option" },
