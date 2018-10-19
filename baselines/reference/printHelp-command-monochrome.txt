@@ -13,3 +13,4 @@ general options:
     --rest <string[]>
     --
  -h --help             Prints this message.
+

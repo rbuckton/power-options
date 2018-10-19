@@ -3,19 +3,19 @@ import * as net from "net";
 import * as chalk from "chalk";
 import { EOL } from "os";
 import { PassThrough } from "stream";
-import { CommandLineResolver, Resolver, Command } from "./resolver";
+import { Resolver, Command } from "./resolver";
 import { parse } from "./parser";
 import { bind } from "./binder";
 import { evaluate } from "./evaluator";
-import { getPackageDetails } from "./utils";
+import { getPackageDetails, walkCommandPath, toCommandPath } from "./utils";
 import { HelpWriter } from "./printer";
-import { CommandLineSettings, ParsedCommandLine, CommandLineMeta, CommandLineExecCallback, ParsedCommandLineForCommand } from "./types";
+import { CommandLineSettings, ParsedCommandLine, CommandLineExecCallback, CommandPath, HelpDetails } from "./types";
 
 export function parseCommandLine<T>(args: string[], settings: CommandLineSettings): ParsedCommandLine<T> {
     return new CommandLine(settings).parse<T>(args);
 }
 
-export class CommandLine<TOptions = any, TContext = any> extends CommandLineResolver {
+export class CommandLine extends Resolver {
     public readonly settings: CommandLineSettings;
     public readonly name: string;
     public readonly description: string;
@@ -29,14 +29,16 @@ export class CommandLine<TOptions = any, TContext = any> extends CommandLineReso
     public readonly width: number | undefined;
     public readonly maxWidth: number | undefined;
 
-    private _preExec: CommandLineExecCallback<CommandLineMeta<TOptions, TContext>> | undefined;
-    private _exec: CommandLineExecCallback<CommandLineMeta<TOptions, TContext>> | undefined;
+    private _preExec: CommandLineExecCallback | undefined;
+    private _exec: CommandLineExecCallback | undefined;
+    private _postExec: CommandLineExecCallback | undefined;
     private _colorStdout: boolean;
     private _colorStderr: boolean;
+    private _container: boolean;
 
-    constructor(settings: CommandLineSettings<CommandLineMeta<TOptions, TContext>>) {
+    constructor(settings: CommandLineSettings) {
         super(settings);
-        const { auto, usage, example, color, width, maxWidth, stdout, stderr, preExec, exec } = settings;
+        const { auto, usage, example, color, width, maxWidth, stdout, stderr, container = false } = settings;
         const { name, description, version } = getPackageDetails(settings);
         this.settings = settings;
         this.name = name || "";
@@ -50,38 +52,82 @@ export class CommandLine<TOptions = any, TContext = any> extends CommandLineReso
         this.examples = Array.isArray(example) ? example.slice() : example ? [example] : [];
         this.stdout = pickStream(stdout, process.stdout);
         this.stderr = pickStream(stderr, process.stderr);
-        this._preExec = preExec;
-        this._exec = exec;
+        this._preExec = settings.preExec;
+        this._exec = settings.exec;
+        this._postExec = settings.postExec;
         this._colorStdout = color === "force" ? true : this.color && this.stdout instanceof tty.WriteStream;
         this._colorStderr = color === "force" ? true : this.color && this.stderr instanceof tty.WriteStream;
+        this._container = container;
+        super._ensureHelpOption();
+        super._ensureHelpCommand();
     }
 
-    public parse<T extends TOptions = TOptions>(args: string[]): ParsedCommandLine<T> {
-        return this._parseCore(args, this.auto);
+    public parse<T = any>(args: string[]): ParsedCommandLine<T> {
+        const { parsedArguments } = parse(args);
+        const { boundCommand, boundArguments, groups, resolver } = bind(parsedArguments, this);
+        const parsed = evaluate<T>(boundCommand, boundArguments, groups, resolver);
+        if (this.auto) {
+            this._printResult(parsed);
+        }
+        if (parsed.handled && this.auto === true) {
+            process.exit(parsed.status);
+        }
+        return parsed;
     }
 
-    public async parseAndExecute(args: string[], context: TContext): Promise<ParsedCommandLine<TOptions>> {
-        const result = this._parseCore(args, this.auto || "print");
-        if (!result.handled && this._preExec) {
+    public async execute<T>(parsed: ParsedCommandLine<T>, context: any): Promise<void> {
+        if (!parsed.handled && !parsed.error && !parsed.help) {
+            const command = parsed.commandPath && this.findCommand(parsed.commandPath);
+            if (command) {
+                await command.execute(parsed, context);
+            }
+            else {
+                await super.execute(parsed, context);
+            }
+            this._printResult(parsed);
+        }
+        if (parsed.handled && this.auto === true) {
+            process.exit(parsed.status);
+        }
+    }
+
+    public async parseAndExecute<T = any>(args: string[], context: any): Promise<ParsedCommandLine<T>> {
+        const parsed = this.parse<T>(args);
+        await this.execute(parsed, context);
+        return parsed;
+    }
+
+    protected async _invokePreExec(parsed: ParsedCommandLine<any>, context: any) {
+        if (!parsed.handled && this._preExec) {
             const preExec = this._preExec;
-            await preExec(result, context);
-            this._handleResult(result, this.auto === true);
+            await preExec.call(this.settings, parsed, context);
         }
+    }
 
-        if (!result.handled && result.command && result.command.exec) {
-            await result.command.exec(result as ParsedCommandLineForCommand<CommandLineMeta<TOptions, TContext>>, context);
-            this._handleResult(result, this.auto === true);
-            result.handled = true;
-        }
-
-        if (!result.handled && this._exec) {
+    protected async _invokeExec(parsed: ParsedCommandLine<any>, context: any) {
+        if (!parsed.handled && this._exec) {
             const exec = this._exec;
-            await exec(result, context);
-            this._handleResult(result, this.auto === true);
+            await exec.call(this.settings, parsed, context);
+            parsed.handled = true;
+        }
+    }
+
+    protected async _invokePostExec(parsed: ParsedCommandLine<any>, context: any) {
+        if (parsed.handled && this._postExec) {
+            const postExec = this._postExec;
+            await postExec.call(this.settings, parsed, context);
+        }
+    }
+
+    private _printResult<T>(result: ParsedCommandLine<T>) {
+        if (this._container && !result.commandPath && !result.help) {
+            result.help = true;
+        }
+        if (result.error || result.help) {
+            if (result.error) this.printError(result.error);
+            if (result.help) this.printHelp(result.commandPath, result.help === true ? HelpDetails.None : result.help);
             result.handled = true;
         }
-
-        return result;
     }
 
     public printError(error: string) {
@@ -93,67 +139,49 @@ export class CommandLine<TOptions = any, TContext = any> extends CommandLineReso
         this.stderr.write(message, "utf8");
     }
 
-    public printHelp(commandName?: string): void;
-    public printHelp(commandName: string, ...subcommandNames: string[]): void;
-    public printHelp(commandPath?: ReadonlyArray<string>): void;
-    public printHelp(commandPath?: string | ReadonlyArray<string>, ...subcommandNames: string[]) {
+    public printHelp(details?: HelpDetails): void;
+    public printHelp(commandPath?: string | CommandPath, details?: HelpDetails): void;
+    public printHelp(commandPath?: string | CommandPath | HelpDetails, details?: HelpDetails) {
+        if (typeof commandPath === "number") details = commandPath, commandPath = undefined;
         let resolver: Resolver = this;
         let command: Command | undefined;
-        let commandQueue: Command[] | undefined;
         if (commandPath) {
-            commandQueue = [];
-            commandPath = typeof commandPath === "string" ? [commandPath, ...subcommandNames] : commandPath;
-            for (const commandName of commandPath) {
-                command = resolver.fromCommandName(commandName);
-                if (!command) throw new Error(`Command '${commandName}' not found.`);
-                commandQueue.push(command);
-                resolver = command;
-            }
+            const result = walkCommandPath(this, toCommandPath(commandPath), true);
+            if (!result.found) throw new Error (`Command '${result.commandName}' not found.`);
+            command = result.command;
+            resolver = result.resolver;
         }
 
         const width = this.width !== undefined ? this.width :
             this.stdout instanceof tty.WriteStream ? this.stdout.columns - 2 :
             undefined;
+
         const maxWidth = this.maxWidth !== undefined ? this.maxWidth :
             this.width !== undefined ? this.width :
             undefined;
-        const writer = new HelpWriter(this, command, { width, maxWidth, color: this._colorStdout });
+
+        const writer = new HelpWriter(this, command, {
+            width,
+            maxWidth,
+            color: this._colorStdout,
+            level: details! & HelpDetails.Advanced ? "advanced" : "visible",
+            examples: (details! & HelpDetails.Examples) === HelpDetails.Examples
+        });
+
         const commands = resolver.getCommands();
         const generalOptions = this.getOwnOptions("*");
         writer.addUsages(command ? command.usages : this.usages);
         writer.addDefaultUsage();
         writer.addDescription(command ? command.description : this.description);
         writer.addCommands(commands);
-        if (commandQueue) {
-            let command: Command | undefined;
-            while (command = commandQueue.shift()) {
-                writer.addOptions(command.getOwnOptions("*"));
+        if (command) {
+            for (const node of command.toHierarchy().ancestorsAndSelf()) {
+                writer.addOptions(node.getOwnOptions("*"));
             }
         }
         writer.addOptions(generalOptions);
         writer.addExamples(command ? command.examples : this.examples);
         writer.write(this.stdout);
-    }
-
-    private _parseCore<T extends TOptions = TOptions>(args: string[], auto: boolean | "print" | undefined): ParsedCommandLine<T> {
-        const { parsedArguments } = parse(args);
-        const { boundCommand, boundArguments, groups, resolver } = bind(parsedArguments, this);
-        const result = evaluate<T>(boundCommand, boundArguments, groups, resolver);
-        if (auto) {
-            this._handleResult(result, auto === true);
-        }
-        return result;
-    }
-
-    private _handleResult(result: ParsedCommandLine<TOptions>, exit: boolean) {
-        if (!result.handled && (result.error || result.help)) {
-            if (result.error) this.printError(result.error);
-            if (result.help) this.printHelp(result.commandPath);
-            result.handled = true;
-        }
-        if (result.handled && exit) {
-            process.exit(result.status);
-        }
     }
 }
 

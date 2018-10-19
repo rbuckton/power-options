@@ -71,16 +71,31 @@ describe("printHelp(command)", () => {
     });
 });
 
+describe("printHelp(container)", () => {
+    it("monochrome", async () => {
+        const stdout = new PassThrough({ encoding: "utf8" });
+        new CommandLine(Object.assign({ }, settings, { stdout })).printHelp("w");
+        stdout.end();
+        await baseline(options, "printHelp-container-monochrome.txt", stdout);
+    });
+    it("color", async () => {
+        const stdout = new PassThrough({ encoding: "utf8" });
+        new CommandLine(Object.assign({ }, settings, { stdout, color: "force", width: 190 })).printHelp("w");
+        stdout.end();
+        await baseline(options, "printHelp-container-color.txt", stdout);
+    });
+});
+
 describe("printHelp(subcommand)", () => {
     it("monochrome", async () => {
         const stdout = new PassThrough({ encoding: "utf8" });
-        new CommandLine(Object.assign({ }, settings, { stdout })).printHelp("w", "v");
+        new CommandLine(Object.assign({ }, settings, { stdout })).printHelp(["w", "v"]);
         stdout.end();
         await baseline(options, "printHelp-subcommand-monochrome.txt", stdout);
     });
     it("color", async () => {
         const stdout = new PassThrough({ encoding: "utf8" });
-        new CommandLine(Object.assign({ }, settings, { stdout, color: "force", width: 190 })).printHelp("w", "v");
+        new CommandLine(Object.assign({ }, settings, { stdout, color: "force", width: 190 })).printHelp(["w", "v"]);
         stdout.end();
         await baseline(options, "printHelp-subcommand-color.txt", stdout);
     });

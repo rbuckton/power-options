@@ -71,6 +71,7 @@ describe("commandLine", () => {
                     }
                 });
 
+                debugger;
                 const result = await commandLine.parseAndExecute(["a"], {});
                 stdout.end();
                 stderr.end();
@@ -78,6 +79,7 @@ describe("commandLine", () => {
                 const out = await stdout.waitForEnd();
                 const err = await stderr.waitForEnd();
 
+                expect(result.commandPath).to.deep.equal(["a"]);
                 expect(out.length).to.be.greaterThan(0);
                 expect(err.length).to.equal(0);
                 expect(result.help).to.be.true;

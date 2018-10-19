@@ -1,7 +1,7 @@
-usage: test w v [[--x] <string>] [[--rest] <string[]>] [options] [--]
+usage: test w [<command>] [[--x] <string>] [[--rest] <string[]>] [options] [--]
 
-v options:
-    --va <string>
+w commands:
+ v                     The 'v' command.
 
 w options:
     --wa <string>

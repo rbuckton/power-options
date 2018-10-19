@@ -1,11 +1,15 @@
-export interface CommandLineMeta<TOptions = {}, TContext = {}> { options: TOptions, context: TContext }
-export type CommandLineExecCallback<TMeta extends CommandLineMeta = any> = (parsedCommandLine: ParsedCommandLine<TMeta["options"]>, context: TMeta["context"]) => void | PromiseLike<void>;
-export type CommandLineCommandExecCallback<TMeta extends CommandLineMeta = any> = (parsedCommandLine: ParsedCommandLineForCommand<TMeta>, context: TMeta["context"]) => void | PromiseLike<void>;
+export type CommandLineExecCallback = (parsedCommandLine: ParsedCommandLine<any>, context: any) => void | PromiseLike<void>;
+export type CommandLineConvertCallback<T> = (value: string, parameterName: string) => T;
+export type CommandLineValidateCallback<T> = (value: T, parameterName: string, parsedArgs: any) => CommandLineParseError | undefined | void;
+export type CommandLineErrorCallback = (parameterName: string, error: CommandLineParseError) => CommandLineParseError;
+export type CommandLineDefaultValueCallback<T> = (parsedArgs: any, group: string | undefined) => T | undefined;
+export type CommandLineVisibility = "visible" | "advanced" | "hidden";
+export type CommandPath = [string, ...string[]];
 
 /**
  * Settings that control how to parse command line arguments.
  */
-export interface CommandLineSettings<TMeta extends CommandLineMeta = any> {
+export interface CommandLineSettings {
     /**
      * The program's name. Default value loaded from package.json.
      */
@@ -74,9 +78,15 @@ export interface CommandLineSettings<TMeta extends CommandLineMeta = any> {
     options?: CommandLineOptionMap;
 
     /**
+     * Indicates that this command line represents a command container only. Help should be printed
+     * if no command was found.
+     */
+    container?: boolean;
+
+    /**
      * Commands with individual command line options.
      **/
-    commands?: CommandLineCommandMap<TMeta>;
+    commands?: CommandLineCommandMap;
 
     /**
      * An optional default parameter group.
@@ -91,25 +101,35 @@ export interface CommandLineSettings<TMeta extends CommandLineMeta = any> {
     /**
      * A callback executed prior to executing the command line.
      */
-    preExec?: CommandLineExecCallback<TMeta>;
+    preExec?: CommandLineExecCallback;
 
     /**
      * A callback that can be used to execute the command line if no command has already executed.
      */
-    exec?: CommandLineExecCallback<TMeta>;
+    exec?: CommandLineExecCallback;
+
+    /**
+     * A callback executed after executing the command line.
+     */
+    postExec?: CommandLineExecCallback;
 }
 
 /**
  * Named command commands.
  */
-export interface CommandLineCommandMap<TMeta extends CommandLineMeta = any> {
-    [key: string]: CommandLineCommand<TMeta>;
+export interface CommandLineCommandMap {
+    [key: string]: CommandLineCommand;
+}
+
+export interface CommandLineAlias {
+    command: string | CommandPath;
+    args?: ReadonlyArray<string>;
 }
 
 /**
  * Describes a command, for programs that can perform multiple different behaviors.
  */
-export interface CommandLineCommand<TMeta extends CommandLineMeta = any> {
+export interface CommandLineCommand {
     /**
      * The name of the command. If not specified, the key provided in the CommandLineCommandMap
      * will be used.
@@ -120,6 +140,11 @@ export interface CommandLineCommand<TMeta extends CommandLineMeta = any> {
      * Aliases for the command.
      */
     alias?: string | string[];
+
+    /**
+     * This command is a shortcut for a set of command-line arguments.
+     */
+    aliasFor?: string | CommandPath | CommandLineAlias;
 
     /**
      * Includes named option sets.
@@ -140,12 +165,18 @@ export interface CommandLineCommand<TMeta extends CommandLineMeta = any> {
     /**
      * Subcommands with individual command line options.
      **/
-    commands?: CommandLineCommandMap<TMeta>;
+    commands?: CommandLineCommandMap;
 
     /**
-     * Indicates the commend should not be printed when printing help text.
+     * Indicates the command should not be printed when printing help text.
+     * @deprecated Use `visiblity: "hidden"` instead.
      */
     hidden?: boolean;
+
+    /**
+     * Indicates when the command should be visible when printing help text.
+     */
+    visibility?: CommandLineVisibility | "inherit";
 
     /**
      * The usage message to print for the program.
@@ -186,9 +217,19 @@ export interface CommandLineCommand<TMeta extends CommandLineMeta = any> {
     container?: boolean;
 
     /**
+     * A callback executed prior to executing the command line.
+     */
+    preExec?: CommandLineExecCallback;
+
+    /**
      * A callback that can be used to execute the command.
      */
-    exec?: CommandLineCommandExecCallback<TMeta>;
+    exec?: CommandLineExecCallback;
+
+    /**
+     * A callback executed after executing the command line.
+     */
+    postExec?: CommandLineExecCallback;
 }
 
 export interface CommandLineOptionSets {
@@ -197,7 +238,18 @@ export interface CommandLineOptionSets {
 
 export interface CommandLineOptionSet {
     setName?: string;
+
+    /**
+     * Indicates the option set should not be printed when printing help text.
+     * @deprecated Use `visiblity: "hidden"` instead.
+     */
     hidden?: boolean;
+
+    /**
+     * Indicates when the option set should be visible when printing help text.
+     */
+    visibility?: CommandLineVisibility | "inherit";
+
     merge?: boolean;
     include?: string | string[];
     options?: CommandLineOptionMap;
@@ -210,14 +262,11 @@ export interface CommandLineOptionMap {
     [key: string]: CommandLineOption;
 }
 
-/**
- * A command line option.
- */
-export interface CommandLineOptionBase<TValue, TDefault> {
+export interface CommandLineOptionBase<T, TDefault = T> {
     /**
-     * The type for the option. Default "boolean".
+     * The type for the option.
      */
-    type?: "boolean" | "number" | "string";
+    type?: "string" | "number" | "boolean";
 
     /**
      * The long name for the option. For example: --remove-comments
@@ -257,8 +306,14 @@ export interface CommandLineOptionBase<TValue, TDefault> {
 
     /**
      * Indicates the option should not be printed when printing help text.
+     * @deprecated Use `visiblity: "hidden"` instead.
      */
     hidden?: boolean;
+
+    /**
+     * Indicates when the option should be visible when printing help text.
+     */
+    visibility?: CommandLineVisibility | "inherit";
 
     /**
      * A string to use in help text to describe the option.
@@ -268,25 +323,33 @@ export interface CommandLineOptionBase<TValue, TDefault> {
     /**
      * Callback used to convert a supplied argument value.
      */
-    convert?: (value: string, parameterName: string) => TValue,
+    convert?: T extends unknown ? CommandLineConvertCallback<T> : never,
 
     /**
      * Callback used to validate a supplied argument value.
      */
-    validate?: (value: TValue, parameterName: string, parsedArgs: any) => CommandLineParseError | void;
+    validate?: T extends unknown ? CommandLineValidateCallback<T> : never;
 
     /**
      * Callback used to specify the error message to use for this option.
      */
-    error?: ((parameterName: string, error: CommandLineParseError) => CommandLineParseError) | CommandLineParseErrorDefinition | string;
+    error?: CommandLineErrorCallback | CommandLineParseErrorDefinition | string;
 
     /**
      * Callback used to generate a default value for this option.
      */
-    defaultValue?: ((parsedArgs: any, group: string | undefined) => TDefault | undefined) | TDefault;
+    defaultValue?: TDefault extends unknown ? CommandLineDefaultValueCallback<TDefault> | TDefault : never;
 }
 
-export interface CommandLineOptionWithValueBase<TValue, TDefault> extends CommandLineOptionBase<TValue, TDefault> {
+/**
+ * An unspecified command line option.
+ */
+export interface CommandLineUnspecifiedOption extends CommandLineOptionBase<string | number | boolean, string | string[] | number | number[] | boolean> {
+    /**
+     * The type for the option.
+     */
+    type?: undefined;
+
     /**
      * Indicates whether the option can be specified more than once. The results are provided as
      * an array.
@@ -296,7 +359,7 @@ export interface CommandLineOptionWithValueBase<TValue, TDefault> extends Comman
     /**
      * Maps an argument to a specific value.
      */
-    map?: CommandLineValueMap<TValue>;
+    map?: CommandLineValueMap<string | number>;
 
     /**
      * Specifies whether option value matching should be case-insensitive.
@@ -306,23 +369,28 @@ export interface CommandLineOptionWithValueBase<TValue, TDefault> extends Comman
     /**
      * Validates that the value is one of the supplied values.
      */
-    in?: TValue[];
+    in?: (string | number)[];
 
     /**
      * A string to use in help text for the argument of an option that expects a value.
      */
     param?: string;
-}
 
-export interface CommandLineBooleanOptionBase extends CommandLineOptionBase<boolean, boolean> {
+    // boolean options:
+
     /**
      * Indicates that this option is a help option. Only one option may be declared as a help
      * option.
      */
     help?: boolean;
-}
 
-export interface CommandLineStringOptionBase extends CommandLineOptionWithValueBase<string, string | string[]> {
+    /**
+     * This option is a shortcut for a set of command-line arguments.
+     */
+    aliasFor?: string | [string, ...string[]];
+
+    // string options:
+
     /**
      * Indicates that all remaining arguments are consumed as the value of this option. Only one
      * option may declared as a passthru option.
@@ -340,32 +408,120 @@ export interface CommandLineStringOptionBase extends CommandLineOptionWithValueB
     match?: RegExp | string;
 }
 
-export interface CommandLineNumberOptionBase extends CommandLineOptionWithValueBase<number, number | number[]> {
-}
-
-export interface CommandLineBooleanOption extends CommandLineBooleanOptionBase {
+/**
+ * A boolean command line option.
+ */
+export interface CommandLineBooleanOption extends CommandLineOptionBase<boolean, boolean> {
     /**
      * The type for the option.
      */
     type: "boolean";
+
+    /**
+     * Indicates that this option is a help option. Only one option may be declared as a help
+     * option.
+     */
+    help?: boolean;
+
+    /**
+     * This option is a shortcut for a set of command-line arguments.
+     */
+    aliasFor?: string | [string, ...string[]];
 }
 
-export interface CommandLineStringOption extends CommandLineStringOptionBase {
+/**
+ * A string command line option.
+ */
+export interface CommandLineStringOption extends CommandLineOptionBase<string, string | string[]> {
     /**
      * The type for the option.
      */
     type: "string";
+
+    /**
+     * Indicates whether the option can be specified more than once. The results are provided as
+     * an array.
+     */
+    multiple?: boolean | "no-comma" /*deprecated*/ | "comma-separated";
+
+    /**
+     * Maps an argument to a specific value.
+     */
+    map?: CommandLineValueMap<string>;
+
+    /**
+     * Specifies whether option value matching should be case-insensitive.
+     */
+    ignoreCase?: boolean;
+
+    /**
+     * Validates that the value is one of the supplied values.
+     */
+    in?: string[];
+
+    /**
+     * A string to use in help text for the argument of an option that expects a value.
+     */
+    param?: string;
+
+    /**
+     * Indicates that all remaining arguments are consumed as the value of this option. Only one
+     * option may declared as a passthru option.
+     */
+    passthru?: boolean;
+
+    /**
+     * Indicates that any unmatched arguments become the value of this option.
+     */
+    rest?: boolean;
+
+    /**
+     * A regular expression pattern that the option must match.
+     */
+    match?: RegExp | string;
 }
 
-export interface CommandLineNumberOption extends CommandLineNumberOptionBase {
+/**
+ * A number command line option.
+ */
+export interface CommandLineNumberOption extends CommandLineOptionBase<number, number | number[]> {
     /**
      * The type for the option.
      */
     type: "number";
+
+    /**
+     * Indicates whether the option can be specified more than once. The results are provided as
+     * an array.
+     */
+    multiple?: boolean | "no-comma" /*deprecated*/ | "comma-separated";
+
+    /**
+     * Maps an argument to a specific value.
+     */
+    map?: CommandLineValueMap<number>;
+
+    /**
+     * Specifies whether option value matching should be case-insensitive.
+     */
+    ignoreCase?: boolean;
+
+    /**
+     * Validates that the value is one of the supplied values.
+     */
+    in?: number[];
+
+    /**
+     * A string to use in help text for the argument of an option that expects a value.
+     */
+    param?: string;
 }
 
-export type CommandLineUnspecifiedOption = CommandLineBooleanOptionBase & CommandLineStringOptionBase & CommandLineNumberOptionBase;
-export type CommandLineOption = CommandLineBooleanOption | CommandLineStringOption | CommandLineNumberOption | CommandLineUnspecifiedOption;
+export type CommandLineOption =
+    | CommandLineBooleanOption
+    | CommandLineStringOption
+    | CommandLineNumberOption
+    | CommandLineUnspecifiedOption;
 
 export interface CommandLineValueMap<T> {
     [key: string]: T;
@@ -396,16 +552,17 @@ export interface ParsedCommandLine<T> {
     handled: boolean;
     options: T;
     commandName?: string;
-    commandPath?: string[];
+    commandPath?: CommandPath;
     command?: CommandLineCommand;
     group?: string;
-    help?: boolean;
+    help?: boolean | HelpDetails.Examples | HelpDetails.Advanced | HelpDetails.Full;
     error?: string;
     status?: number;
 }
 
-export interface ParsedCommandLineForCommand<TMeta extends CommandLineMeta = any> extends ParsedCommandLine<TMeta["options"]> {
-    commandName: string;
-    commandPath: string[];
-    command: CommandLineCommand<TMeta>;
+export enum HelpDetails {
+    None =      0x0,
+    Examples =  0x1,
+    Advanced =  0x2,
+    Full =      0x3,
 }

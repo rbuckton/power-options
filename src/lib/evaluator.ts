@@ -1,67 +1,74 @@
-import { ParsedCommandLine, CommandLineCommand, CommandLineParseError } from "./types";
+import { ParsedCommandLine, CommandLineParseError, CommandPath, HelpDetails } from "./types";
 import { getParameterName } from "./parser";
-import { Resolver, Option } from "./resolver";
+import { Resolver, Option, Command } from "./resolver";
 import { BoundCommand, BoundArgument } from "./binder";
 import { toCommandLineParseError } from "./utils";
 
 export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArguments: BoundArgument[], groups: string[] | undefined, resolver: Resolver): ParsedCommandLine<T> {
     let commandName: string | undefined = boundCommand && boundCommand.command && boundCommand.command.commandName;
     let commandPath: string[] | undefined;
-    if (boundCommand && boundCommand.command) {
-        commandName = boundCommand.command.commandName;
-        commandPath = [commandName];
+    let options: any = {};
+    let command: Command | undefined;
+    let group: string | undefined = undefined;
+    let help: ParsedCommandLine<any>["help"] = undefined;
+    let error: string | undefined = undefined;
+    let status: number | undefined = 0;
+
+    if (boundCommand) {
+        if (boundCommand.command) {
+            command = boundCommand.command;
+            commandName = boundCommand.parsed!.text;
+            commandPath = [commandName];
+        }
         let parent = boundCommand.parent;
         while (parent) {
+            if (!commandPath) commandPath = [];
             commandPath.unshift(parent.command!.commandName);
             parent = parent.parent;
         }
     }
 
-    let ok = true;
-    let options: any = {};
-    let command: CommandLineCommand | undefined;
-    let group: string | undefined = undefined;
-    let help: boolean | undefined = undefined;
-    let error: string | undefined = undefined;
-    let status: number | undefined = 0;
-
-    if (boundCommand && boundCommand.command) {
-        const command = boundCommand.command.command;
-        if (command.container) {
-            help = true;
-        }
-        else if (command.help) {
-            help = true;
-            commandName = undefined;
-            commandPath = undefined;
-        }
+    if (boundCommand && boundCommand.error) {
+        reportError(boundCommand.error);
     }
 
     // evaluate bound arguments
     for (const arg of boundArguments) {
-        if (!evaluateArgument(arg)) ok = false;
+        evaluateArgument(arg);
     }
 
     // select the group to use
     group = selectOptionGroup(groups, resolver.getDefaultGroup());
 
     // fill defaults and validate required values
-    if (ok) ok = fillDefaultValues();
-    if (ok) ok = validateRequiredValues();
-
-    if (ok && !help && !error && boundCommand && boundCommand.command) {
-        command = boundCommand.command.command;
+    if (!error) fillDefaultValues();
+    if (!error) validateRequiredValues();
+    if (!help && command) {
         if (command.container) {
             help = true;
         }
         else if (command.help) {
-            help = true;
             commandName = undefined;
-            commandPath = undefined;
+            commandPath = options.commandPath;
+            let helpDetails = HelpDetails.None;
+            if (options.full) helpDetails |= HelpDetails.Full;
+            if (options.examples) helpDetails |= HelpDetails.Examples;
+            if (options.advanced) helpDetails |= HelpDetails.Advanced;
+            help = helpDetails || true;
         }
     }
 
-    return { options, commandName, commandPath, command, group, help, error, status, handled: false };
+    return {
+        options,
+        commandName,
+        commandPath: commandPath as CommandPath | undefined,
+        command: command && command.rawCommand,
+        group,
+        help,
+        error,
+        status,
+        handled: false
+    };
 
     function evaluateArgument(bound: BoundArgument) {
         if (bound.error) {
@@ -189,11 +196,9 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
                 }
                 catch (e) {
                     reportError(e);
-                    return false;
                 }
             }
         }
-        return true;
     }
 
     function validateRequiredValues() {
@@ -215,8 +220,11 @@ export function evaluate<T>(boundCommand: BoundCommand | undefined, boundArgumen
     }
 
     function reportError(e: any) {
-        if (!help && !error) {
-            ({ message: error, help = false, status = -1 } = toCommandLineParseError(e));
+        if (!error) {
+            const parseError = toCommandLineParseError(e);
+            error = parseError.message;
+            if (parseError.help && !help) help = true;
+            if (parseError.status !== -1 || !status) status = parseError.status;
         }
     }
 }

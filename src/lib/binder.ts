@@ -1,9 +1,11 @@
 import { CommandLineParseError } from "./types";
-import { CommandLineResolver, Command, Resolver, Option } from "./resolver";
-import { getParameterName, ParsedArgument } from "./parser";
+import { Command, Resolver, Option, RestOption } from "./resolver";
+import { getParameterName, ParsedArgument, parse, ParsedArgumentValue } from "./parser";
 import { toCommandLineParseError } from "./utils";
 
 const booleanPattern = /^(?:(-?1|t(rue)?|y(es)?)|(0|f(alse)?|n(o)?))$/i;
+
+type Ref<T> = { value: T };
 
 export interface BindResult {
     boundCommand: BoundCommand | undefined;
@@ -36,29 +38,27 @@ interface PossibleBinding {
     possibleGroups: string[] | undefined;
 }
 
-export function bind(parsedArguments: ParsedArgument[], commandLineResolver: CommandLineResolver): BindResult {
-    const boundArguments: BoundArgument[] = [];
-    const unboundArguments: ParsedArgument[] = [];
-    const freeArguments: ParsedArgument[] = [];
+export function bind(parsedArguments: ParsedArgument[], resolver: Resolver): BindResult {
     const usedPositions = new Set<number>();
-    let groups: string[] | undefined;
-    let command: Command | undefined;
-    let resolver: Resolver = commandLineResolver;
+    const boundArguments: BoundArgument[] = [];
     let boundCommand: BoundCommand | undefined;
-    let parsed: ParsedArgument | undefined;
-    let hasCommands = resolver.hasCommands;
+    let groups: string[] | undefined;
+    let restOption: RestOption | undefined;
+    parsedArguments = bindNamedArguments(parsedArguments, resolver.hasCommands);
+    parsedArguments = bindPositionalArguments(parsedArguments);
+    bindFreeArguments(parsedArguments);
 
-    // Bind command
-    while (hasCommands) {
-        hasCommands = false;
+    return { boundArguments, boundCommand, groups, resolver };
 
-        // Bind explicit arguments without a command
+    function bindNamedArguments(parsedArguments: ParsedArgument[], bindCommands: boolean) {
+        let unboundArguments: ParsedArgument[] = [];
+        let parsed: ParsedArgument | undefined;
         while (parsed = parsedArguments.shift()) {
             const parameter = parsed.parameter;
             if (parameter) {
                 let property: Option | undefined;
                 if (parameter.passthru) {
-                    property = resolver.getPassthru();
+                    property = resolver.getPassthruOption();
                 }
                 else if (parameter.shortName) {
                     property = resolver.fromShortName(parameter.shortName);
@@ -69,124 +69,113 @@ export function bind(parsedArguments: ParsedArgument[], commandLineResolver: Com
 
                 const boundArgument = bindArgument(parsed, property, parsedArguments, usedPositions);
                 groups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ false);
-                boundArguments.push(boundArgument);
+                if (boundArgument.option && boundArgument.option.aliasFor) {
+                    const parseResult = parse(boundArgument.option.aliasFor.slice());
+                    unboundArguments = unboundArguments.concat(bindNamedArguments(parseResult.parsedArguments, /*allowCommands*/ false));
+                }
+                else {
+                    boundArguments.push(boundArgument);
+                }
             }
-            else {
-                parsedArguments.unshift(parsed);
-                break;
-            }
-        }
-
-        for (let i = 0; i < parsedArguments.length; i++) {
-            const parsed = parsedArguments[i];
-            if (!parsed.parameter) {
-                parsedArguments.splice(i, 1);
-                command = resolver.fromCommandName(parsed.text);
+            else if (bindCommands) {
+                const command = resolver.getCommand(parsed.text);
                 if (!command) {
                     boundCommand = {
+                        parent: boundCommand,
                         parsed,
-                        error: new CommandLineParseError(`Command '${parsed.text}' was unrecognized.`)
+                        error: new CommandLineParseError(`Command '${parsed.text}' was unrecognized.`, /*help*/ true)
                     };
+                }
+                else if (command.aliasFor) {
+                    const parseResult = parse(command.aliasFor.getUnparsedArguments());
+                    parsedArguments = parseResult.parsedArguments.concat(parsedArguments);
                 }
                 else {
                     resolver = command;
+                    bindCommands = resolver.hasCommands;
                     boundCommand = { parent: boundCommand, parsed, command };
-                    hasCommands = resolver.hasCommands;
                 }
-                break;
-            }
-        }
-    }
-
-    // Bind explicit arguments
-    while (parsed = parsedArguments.shift()) {
-        const parameter = parsed.parameter;
-        if (parameter) {
-            let property: Option | undefined;
-            if (parameter.passthru) {
-                property = resolver.getPassthru();
-            }
-            else if (parameter.shortName) {
-                property = resolver.fromShortName(parameter.shortName);
-            }
-            else if (parameter.longName) {
-                property = resolver.fromLongName(parameter.longName);
-            }
-
-            const boundArgument = bindArgument(parsed, property, parsedArguments, usedPositions);
-            groups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ false);
-            boundArguments.push(boundArgument);
-        }
-        else {
-            unboundArguments.push(parsed);
-        }
-    }
-
-    // Bind positional arguments
-    const restOption = resolver.getRest();
-    let position = 0;
-    while (parsed = unboundArguments.shift()) {
-        // Skip positions for bound arguments.
-        while (usedPositions.has(position)) position++;
-
-        // If the rest option is positional, consume the remaining unbound arguments.
-        if (restOption && restOption.position <= position) {
-            freeArguments.push(parsed, ...unboundArguments);
-            break;
-        }
-
-        const options = resolver.fromPosition(position);
-        if (!options) {
-            freeArguments.push(parsed);
-        }
-        else if (options.length === 1) {
-            const boundArgument = bindArgument(parsed, options[0], /*args*/ undefined, usedPositions);
-            groups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ false);
-            boundArguments.push(boundArgument);
-        }
-        else {
-            // Attempt each possible binding.
-            const possibleBindings: PossibleBinding[] = [];
-            for (const option of options) {
-                const boundArgument = bindArgument(parsed, option, /*args*/ undefined, usedPositions);
-                const possibleGroups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ true);
-                if (!boundArgument.error) {
-                    possibleBindings.push({ boundArgument, possibleGroups });
-                }
-            }
-
-            // If there was only one successful binding, use it.
-            if (possibleBindings.length === 1) {
-                const possibleBinding = possibleBindings[0];
-                groups = possibleBinding.possibleGroups;
-                boundArguments.push(possibleBinding.boundArgument);
             }
             else {
-                boundArguments.push({
-                    error: new CommandLineParseError(`Ambiguous parameter '${parsed.text}' at position ${position}. Try specifying the command line option explicitly.`, /*help*/ true)
-                });
+                unboundArguments.push(parsed);
             }
         }
-
-        position++;
+        return unboundArguments;
     }
 
-    // Bind remaining free arguments
-    while (parsed = freeArguments.shift()) {
-        if (!restOption) {
-            boundArguments.push({
-                parsed,
-                option: undefined,
-                argument: undefined,
-                error: new CommandLineParseError(`Option '${parsed.text}' was unrecognized.`, /*help*/ true)
-            });
+    function bindPositionalArguments(parsedArguments: ParsedArgument[]) {
+        const freeArguments: ParsedArgument[] = [];
+        let position = 0;
+        let parsed: ParsedArgument | undefined;
+        while (parsed = parsedArguments.shift()) {
+            // Skip positions for bound arguments.
+            while (usedPositions.has(position)) position++;
+
+            // If the rest option is positional, consume the remaining unbound arguments.
+            if (restOption && restOption.position !== undefined && restOption.position <= position) {
+                freeArguments.push(parsed, ...parsedArguments);
+                break;
+            }
+
+            const options = resolver.fromPosition(position);
+            if (!options) {
+                freeArguments.push(parsed);
+            }
+            else if (options.length === 1) {
+                const boundArgument = bindArgument(parsed, options[0], /*parsedArguments*/ undefined, usedPositions);
+                groups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ false);
+                if (boundArgument.option && boundArgument.option.aliasFor) {
+                    const parseResult = parse(boundArgument.option.aliasFor.slice());
+                    parsedArguments = bindNamedArguments(parseResult.parsedArguments, /*bindCommands*/ false).concat(parsedArguments);
+                }
+                else {
+                    boundArguments.push(boundArgument);
+                }
+            }
+            else {
+                // Attempt each possible binding.
+                const possibleBindings: PossibleBinding[] = [];
+                for (const option of options) {
+                    const boundArgument = bindArgument(parsed, option, /*parsedArguments*/ undefined, usedPositions);
+                    const possibleGroups = applyGroupRestrictions(boundArgument, groups, /*copyOnModify*/ true);
+                    if (!boundArgument.error) {
+                        possibleBindings.push({ boundArgument, possibleGroups });
+                    }
+                }
+
+                // If there was only one successful binding, use it.
+                if (possibleBindings.length === 1) {
+                    const possibleBinding = possibleBindings[0];
+                    groups = possibleBinding.possibleGroups;
+                    boundArguments.push(possibleBinding.boundArgument);
+                }
+                else {
+                    boundArguments.push({
+                        error: new CommandLineParseError(`Ambiguous parameter '${parsed.text}' at position ${position}. Try specifying the command line option explicitly.`, /*help*/ true)
+                    });
+                }
+            }
+            position++;
         }
-        else {
-            boundArguments.push(bindArgument(parsed, restOption, /*args*/ undefined, usedPositions));
-        }
+        return freeArguments;
     }
 
-    return { boundCommand, boundArguments, groups, resolver };
+    function bindFreeArguments(parsedArguments: ParsedArgument[]) {
+        let parsed: ParsedArgument | undefined;
+        while (parsed = parsedArguments.shift()) {
+            if (!restOption) {
+                boundArguments.push({
+                    parsed,
+                    option: undefined,
+                    argument: undefined,
+                    error: new CommandLineParseError(`Option '${parsed.text}' was unrecognized.`, /*help*/ true)
+                });
+            }
+            else {
+                boundArguments.push(bindArgument(parsed, restOption, /*parsedArguments*/ undefined, usedPositions));
+            }
+        }
+    }
 }
 
 function bindArgument(parsed: ParsedArgument, option: Option | undefined, args: ParsedArgument[] | undefined, usedPositions: Set<number>): BoundArgument {
@@ -354,7 +343,6 @@ function readNextArgumentValue(args: ParsedArgument[] | undefined) {
     if (args && args.length > 0 && args[0].parameter === undefined) {
         return args.shift()!.argument;
     }
-
     return undefined;
 }
 

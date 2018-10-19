@@ -7,7 +7,9 @@
         "composite": true,
         "types": ["node"],
         "lib": ["es2017", "dom"],
-        "outDir": "../../dist/lib"
+        "outDir": "../../dist/lib",
+        "sourceMap": true,
+        "declarationMap": true,
     },
     "include": [
         "./**/*.ts"

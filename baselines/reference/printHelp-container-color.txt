@@ -1,4 +1,10 @@
-[37m[1musage: [22m[39m[33m[1mtest[22m[39m [36m[1mz[22m[39m [[--x] [90m<string>[39m] [[--rest] [90m<string[]>[39m] [options] [[90m--[39m]
+[37m[1musage: [22m[39m[33m[1mtest[22m[39m [36m[1mw[22m[39m [[36m[1m<command>[22m[39m] [[--x] [90m<string>[39m] [[--rest] [90m<string[]>[39m] [options] [[90m--[39m]
+
+[37m[1m[36m[1mw[1m[37m commands:[22m[39m
+ [36m[1mv[22m[39m                     The 'v' command.
+
+[37m[1m[36m[1mw[1m[37m options:[22m[39m
+    --wa [90m<string>[39m
 
 [37m[1mgeneral options:[22m[39m
  -a                    The [37m[1m-a[22m[39m option

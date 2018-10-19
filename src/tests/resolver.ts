@@ -1,12 +1,13 @@
 import { assert, expect } from "chai";
-import { CommandLineResolver } from "../lib/resolver";
+import { CommandLine } from "../lib/commandLine";
 
 describe("OptionResolver", () => {
     it("default", () => {
-        const resolver = new CommandLineResolver({ options: { } });
+        const resolver = new CommandLine({ options: { } });
         assert.isUndefined(resolver.getDefaultGroup());
-        assert.isUndefined(resolver.getPassthru());
-        assert.isUndefined(resolver.getRest());
+        assert.isUndefined(resolver.getPassthruOption());
+        assert.isUndefined(resolver.getRestOption());
+        assert.isDefined(resolver.getHelpOption());
         assert.deepEqual(resolver.groups, []);
         assert.isDefined(resolver.fromShortName("?"));
         assert.isDefined(resolver.fromShortName("h"));

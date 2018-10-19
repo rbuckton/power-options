@@ -1,14 +1,14 @@
 import { EOL } from "os";
 import { assert, expect } from "chai";
 import { theory } from "./utils";
-import { CommandLineResolver } from "../lib/resolver";
+import { CommandLine } from "../lib/commandLine";
 import { ParsedArgument, ParsedParameter, ParsedArgumentValue } from "../lib/parser";
 import { Option } from "../lib/resolver";
 import { evaluate } from "../lib/evaluator";
 import { BoundArgument, BoundArgumentValue, BoundCommand } from "../lib/binder";
 import { ParsedCommandLine } from "../lib/types";
 
-const resolver = new CommandLineResolver({
+const resolver = new CommandLine({
     options: {
         "a": { shortName: "a" },
         "b": { type: "string" },
@@ -72,14 +72,14 @@ function command(parsed: ParsedArgument, key: string, parent?: BoundCommand): Bo
     return {
         parent,
         parsed,
-        command: resolver.fromCommandName(key)
+        command: resolver.getCommand(key)
     };
 }
 
 function result<T>({ options, commandName, commandPath, group, help, status = 0, error }: Partial<ParsedCommandLine<T>>): ParsedCommandLine<T> {
     return {
         options,
-        command: commandName ? resolver.fromCommandName(commandName).command : undefined,
+        command: commandName ? resolver.getCommand(commandName)!.rawCommand : undefined,
         commandName,
         commandPath: commandPath ? commandPath : commandName ? [commandName] : undefined,
         group,
